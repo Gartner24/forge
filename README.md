@@ -1,4 +1,3 @@
-````md
 # Forge
 
 Forge is a self-hosted development environment platform for a single VPS. It provisions isolated per-developer, per-project Docker workspaces and provides SSH access through a Rust gateway (jump host) so developers can use terminal SSH and VS Code/Cursor Remote-SSH without accessing the host filesystem.
