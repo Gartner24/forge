@@ -211,5 +211,4 @@ Store locally under:
 
 * `/opt/infra/forge/gateway/logs/audit.log`
 
-```
 
