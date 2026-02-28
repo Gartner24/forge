@@ -1,6 +1,41 @@
-## Target filesystem layout (professional, scalable)
+````md
+# Forge
 
-Use this as the canonical structure on the VPS:
+Forge is a self-hosted development environment platform for a single VPS. It provisions isolated per-developer, per-project Docker workspaces and provides SSH access through a Rust gateway (jump host) so developers can use terminal SSH and VS Code/Cursor Remote-SSH without accessing the host filesystem.
+
+Forge also generates reverse-proxy routing for developer preview domains, manages a project registry, enforces access policies, and records audit logs.
+
+## Repository contents
+
+- `bin/devctl`
+  Admin-only CLI to create, list, grant, revoke, disable, and delete developer environments.
+
+- `gateway/`
+  Rust SSH bastion/jump host.
+  - `keys/`: persistent host keys
+  - `authorized_keys/`: developer public keys managed by admin tooling
+  - `logs/`: audit logs (append-only)
+
+- `registry/`
+  Configuration source of truth.
+  - `projects.json`: onboardable projects (repo, stack, ports, defaults)
+  - `devs.json`: developers + access mapping (managed by devctl)
+
+- `templates/`
+  Generated artifacts come from these templates.
+  - `nginx-dev-vhost.conf.tmpl`: dev preview domain routing template
+  - `dev-compose.yml.tmpl`: per-dev per-project container template
+  - `sshd_config.tmpl`: container OpenSSH configuration for Remote-SSH
+
+- `docs/`
+  Architecture and operations documentation.
+  - `architecture.md`
+  - `operations.md`
+  - `troubleshooting.md`
+
+## VPS architecture (canonical)
+
+Forge assumes the VPS follows this structure:
 
 ```text
 /opt/
@@ -9,79 +44,45 @@ Use this as the canonical structure on the VPS:
       compose.yml
       Dockerfile
       nginx.conf
-
-      conf.d/                      # vhosts: prod + dev routing
-        hemis.conf
-        tiap.conf
-        dev/                       # generated dev vhosts
-          santiago-hemis.conf
-          ana-tiap.conf
-      scripts/                     # admin-only helpers
-        nginx-validate-reload.sh
+      conf.d/
+        active/                    # live vhosts (not committed)
+        examples/                  # templates/examples (committed)
+      scripts/
       README.md
 
-    dev-platform/                  # Dev environment platform (admin-only)
+    forge/                         # Dev environment platform (admin-only)
       bin/
-        devctl                      # admin CLI (create/list/revoke/delete dev envs)
-      gateway/                      # Rust SSH bastion/jump host
-        Cargo.toml
-        src/
-        keys/                       # host keys (persistent)
-        authorized_keys/            # per-dev public keys (admin managed)
-        logs/                       # audit logs (append-only)
+      gateway/
       registry/
-        projects.json               # list of onboardable projects
-        devs.json                   # developer identities + access mapping
       templates/
-        nginx-dev-vhost.conf.tmpl
-        dev-compose.yml.tmpl
-        sshd_config.tmpl
       docs/
-        architecture.md
-        operations.md
-        troubleshooting.md
 
-    observability/ (optional later) # prometheus/grafana/loki, etc.
-
-  apps/                            # Production apps (each can be multi-service)
+  apps/                            # Production apps
     hemis/
-      frontend/
-      backend/
-      README.md
     tiap/
-      ...
-    ssh-app/                       # if still used (or move under infra/ if shared)
+    ...
 
-  data/                            # Data owned by infrastructure (not code)
-    dev-workspaces/                # bind mounts OR named-volume backups exports
-      hemis/
-        santiago/
-        ana/
-      tiap/
-        ana/
+  data/                            # Runtime data (not committed)
+    dev_workspaces/
     backups/
     logs/
-      proxy/
-      gateway/
-```
+````
 
-### Ownership / permissions
+## Ownership and permissions
 
 * `/opt/infra/**`: owned by `root:root`, `chmod 750` (admin-only)
 * `/opt/apps/**`: owned by `root:root` (or a deploy user), not writable by devs
-* `/opt/data/**`: owned by `root:root`, with subfolders created by admin scripts only
-* Developers should **never** have shell access to the host filesystem.
-
----
+* `/opt/data/**`: owned by `root:root`, created by admin tooling only
+* Developers should never have shell access to the host filesystem.
 
 ## Network design
 
-Create and keep two Docker networks:
+Two external Docker networks:
 
-* `web` = production network (current apps)
-* `dev-web` = dev network (all dev containers)
+* `web`: production network
+* `dev-web`: development network
 
-`nginx-proxy` joins **both** so it can route to prod + dev.
+The global proxy attaches to both networks:
 
 ```text
 nginx-proxy
@@ -92,13 +93,11 @@ dev containers
   - attached: dev-web
 ```
 
-This prevents dev containers from seeing prod service DNS names by default.
+This prevents dev containers from seeing production service DNS names by default.
 
----
+## Domain and TLS design
 
-## Domain + TLS design
-
-### DNS
+DNS:
 
 * Production:
 
@@ -108,14 +107,10 @@ This prevents dev containers from seeing prod service DNS names by default.
 
   * `*.dev.domain.com` → VPS IP (wildcard)
 
-### TLS
+TLS:
 
-* Production: existing Let’s Encrypt per-domain (your current flow).
-* Dev: **wildcard certificate** for `*.dev.domain.com` using DNS-01 (Cloudflare API recommended).
-
-This avoids rate limits and makes dev onboarding fast.
-
----
+* Production: per-domain Let’s Encrypt certificates
+* Dev: wildcard certificate for `*.dev.domain.com` using DNS-01 (recommended via Cloudflare API)
 
 ## Routing design (Pattern A)
 
@@ -124,179 +119,98 @@ One hostname per developer per project:
 * `santiago-hemis.dev.domain.com`
 * `ana-tiap.dev.domain.com`
 
-Generated vhost files live here:
-
-* `/opt/infra/proxy/conf.d/dev/<dev>-<project>.conf`
-
 Each vhost routes to exactly one dev container:
 
-* upstream: `dev-<project>-<dev>:22` (SSH) is not via nginx
-* upstream: `dev-<project>-<dev>:<appPort>` (HTTP) is via nginx if you also expose preview web UI
+* Container: `dev-<project>-<dev>` (example: `dev-hemis-santiago`)
+* SSH: container runs `sshd` for VS Code/Cursor Remote-SSH
+* Optional HTTP preview:
 
-Typical dev preview routing (HTTP):
+  * `/` → dev frontend port (e.g., 5173/3000)
+  * `/api` → dev backend port (e.g., 5000)
 
-* `/` → dev frontend port (e.g., 5173/3000)
-* `/api` → dev backend port (e.g., 5000)
+## Dev container model
 
----
+For each `(dev, project)` pair Forge provisions:
 
-## Dev container design (per dev per project)
-
-For each `(dev, project)` pair you provision:
-
-**Container name**
-
-* `dev-<project>-<dev>` (example: `dev-hemis-santiago`)
-
-**What’s inside**
-
-* Toolchain image for the project stack (Node/Python/etc.)
+* A dedicated container: `dev-<project>-<dev>`
 * A non-root `dev` user
-* `openssh-server` configured for Remote-SSH
-* Workspace at `/workspace/<project>` (bind mount or named volume)
+* OpenSSH server configured for Remote-SSH
+* A workspace at `/workspace/<project>` (bind mount or named volume)
+* Security defaults:
 
-**Security defaults**
+  * non-root
+  * no privileged mode
+  * no docker socket mounts
+  * drop Linux capabilities
+  * CPU/memory limits
+  * attach only to `dev-web`
 
-* Run as non-root
-* No privileged mode
-* No docker socket mounts
-* Drop caps (`cap_drop: [ALL]` and add only if needed)
-* CPU/Mem limits
-* Read-only root filesystem if feasible (optional)
-* Only attached to `dev-web`
+Git workflow happens inside the container:
 
-**Git workflow inside container**
+* developer authenticates to GitHub (SSH keys or `gh auth login`)
+* clone/pull under `/workspace/<project>`
+* push changes normally
+* production deployments are handled by CI/CD (not direct `git pull` on the VPS)
 
-* Dev uses SSH keys or `gh auth login`
-* Clone/pull occurs inside `/workspace/<project>`
-* They push to GitHub as usual
-* Production deploy is separate (CI/CD)
+## SSH access design (Rust gateway as jump host)
 
----
-
-## SSH access design (Rust gateway as Jump Host)
-
-### Why jump host (Mode 1)
-
-* Works for both:
-
-  * terminal (`ssh`)
-  * VS Code/Cursor Remote-SSH
-* VS Code expects a normal SSH server endpoint (your dev container’s `sshd`).
-
-### How it works
-
-* Developers SSH to the gateway only.
+* Developers connect to the gateway only.
 * Gateway authenticates by public key and enforces access policies.
-* Gateway forwards the SSH connection to the correct dev container (internal `dev-web`).
+* Gateway forwards SSH connections to the correct dev container on `dev-web`.
 
-**Result**
+This supports:
 
-* Dev never gets a host shell.
-* Dev ends up inside the container’s sshd session.
-* VS Code can install its server normally.
+* terminal SSH sessions
+* VS Code/Cursor Remote-SSH
 
-### Access policy mapping
+Access mapping:
 
-* Dev key → dev identity
-* Dev identity → allowed projects
-* Allowed project → container target(s)
+* developer key → developer identity
+* developer identity → allowed projects
+* allowed project → target container(s)
 
----
+## Admin CLI (devctl)
 
-## Project registry (multi-project support)
-
-Maintain `/opt/infra/dev-platform/registry/projects.json` with entries like:
-
-* `id`: `hemis`
-* `repo`: GitHub repo URL
-* `stack`: `node`, `python`, `node+python`, etc.
-* `default_branch`: `main`
-* `dev_ports`: frontend/back ports
-* `startup`: commands (optional)
-
-This allows:
-
-* `devctl add-dev` → select project `1..n` → provision container.
-
-Developers can have:
-
-* access to one project (one container)
-* or multiple projects (multiple containers, recommended)
-
----
-
-## Admin CLI (`devctl`) responsibilities
-
-Admin-only tool that supports:
-
-### Core commands
+Core commands:
 
 * `devctl add-project`
-  Adds to `projects.json`
-
 * `devctl add-dev`
-  Prompts:
-
-  * dev name/id
-  * public SSH key (paste or file path)
-  * project selection (1..n)
-    Outputs:
-  * dev domain (hostname)
-  * SSH config snippet for VS Code/Cursor
-  * status checks to run
-
 * `devctl list-devs`
-
-
 * `devctl grant <dev> <project>`
-
 * `devctl revoke <dev> <project>`
+* `devctl disable-dev <dev>`
+* `devctl delete-dev <dev> <project>`
 
-* `devctl disable-dev <dev>` (key disable)
+`add-dev` generates:
 
-* `devctl delete-dev <dev> <project>` (remove container + vhost + volumes optionally)
-
-### What `add-dev` generates
-
-* Dev container + volume
-* Nginx vhost file in `proxy/conf.d/dev/`
-* Gateway registry update (`devs.json`)
-* Key storage under gateway `authorized_keys/`
-* Optional: bootstrap clone of repo into workspace
-
-### What remains manual
-
-* Only DNS record creation if you don’t use wildcard.
-* With wildcard `*.dev.domain.com`, even that becomes unnecessary per dev.
-
----
+* dev container + workspace
+* proxy vhost for dev domain
+* registry updates
+* key placement under `authorized_keys/`
+* optional repo bootstrap clone
 
 ## Production deployment best practice
 
-For prod apps in `/opt/apps/<project>`:
+Production apps should be deployed via CI/CD:
 
 * CI builds Docker images from GitHub
-* Push to registry (e.g., GHCR)
-* VPS pulls images and restarts compose
-* `nginx-proxy` routes to prod containers on `web`
+* push to a container registry (e.g., GHCR)
+* VPS pulls images and restarts services
+* global proxy routes to prod containers on `web`
 
-No direct `git pull` on production folders.
+## Logging and auditing
 
----
+Forge logs at minimum:
 
-## Operational logging & auditing
-
-Minimum logging:
-
-* gateway login attempts (success/fail)
-* dev identity
+* login attempts (success/fail)
+* developer identity
 * container target
 * source IP
 * timestamp
 
-Store:
+Store locally under:
 
-* `/opt/infra/dev-platform/gateway/logs/audit.log`
-  and optionally ship later.
+* `/opt/infra/forge/gateway/logs/audit.log`
+
+```
 
