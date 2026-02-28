@@ -1,0 +1,26 @@
+FROM python:3.12-bookworm
+
+ARG DEV_USER=dev
+ARG DEV_UID=1001
+ARG DEV_GID=1001
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server ca-certificates git curl wget \
+    ripgrep fd-find vim nano less \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -g ${DEV_GID} ${DEV_USER} \
+    && useradd -m -u ${DEV_UID} -g ${DEV_GID} -s /bin/bash ${DEV_USER}
+
+RUN passwd -d ${DEV_USER} || true && usermod -U ${DEV_USER} || true
+
+RUN mkdir -p /var/run/sshd /etc/ssh/authorized_keys \
+    && chmod 755 /var/run/sshd \
+    && chmod 755 /etc/ssh/authorized_keys
+
+# Reasonable python defaults
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]

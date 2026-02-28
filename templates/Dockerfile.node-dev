@@ -1,0 +1,36 @@
+FROM node:20-bookworm-slim
+
+ARG DEV_USER=dev
+ARG DEV_UID=1001
+ARG DEV_GID=1001
+
+# Base tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server ca-certificates git curl wget \
+    ripgrep fd-find vim nano less \
+    build-essential python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create dev user (handle case where DEV_GID already exists in base image)
+RUN set -eux; \
+    if getent group "${DEV_GID}" >/dev/null; then \
+    EXISTING_GROUP="$(getent group "${DEV_GID}" | cut -d: -f1)"; \
+    useradd -m -u "${DEV_UID}" -g "${EXISTING_GROUP}" -s /bin/bash "${DEV_USER}"; \
+    else \
+    groupadd -g "${DEV_GID}" "${DEV_USER}"; \
+    useradd -m -u "${DEV_UID}" -g "${DEV_GID}" -s /bin/bash "${DEV_USER}"; \
+    fi
+
+# Ensure the user is not "locked" (key auth requires an unlocked account)
+RUN passwd -d ${DEV_USER} || true && usermod -U ${DEV_USER} || true
+
+# SSHD setup
+RUN mkdir -p /var/run/sshd /etc/ssh/authorized_keys \
+    && chmod 755 /var/run/sshd \
+    && chmod 755 /etc/ssh/authorized_keys
+
+# Optional: common Node tooling (keep minimal; dev can install more)
+RUN corepack enable
+
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]

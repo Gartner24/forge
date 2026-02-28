@@ -1,0 +1,29 @@
+Port 22
+Protocol 2
+
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+
+UsePAM no
+
+PubkeyAuthentication yes
+AuthorizedKeysFile /etc/ssh/authorized_keys/%u
+
+AllowUsers dev
+
+X11Forwarding no
+AllowAgentForwarding yes
+AllowTcpForwarding yes
+PermitTunnel no
+
+Subsystem sftp internal-sftp
+
+ClientAliveInterval 60
+ClientAliveCountMax 2
+
+# Container-safe runtime paths
+PidFile /tmp/sshd.pid
+
+LogLevel VERBOSE
