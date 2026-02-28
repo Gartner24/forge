@@ -1,0 +1,9 @@
+{
+  "dev_base_domain": "dev.gartnercodes.com",
+  "proxy_active_dev_conf_dir": "/opt/infra/proxy/conf.d/active/dev",
+  "dev_workspace_root": "/opt/data/dev_workspaces",
+  "dev_network": "dev-web",
+  "default_dev_user": "dev",
+  "default_dev_uid": 1001,
+  "default_dev_gid": 1001
+}

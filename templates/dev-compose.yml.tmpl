@@ -1,0 +1,37 @@
+services:
+  dev:
+    image: {{DEV_IMAGE}}
+    container_name: dev-{{PROJECT}}-{{DEV}}
+    hostname: dev-{{PROJECT}}-{{DEV}}
+
+    networks:
+      - {{DEV_NETWORK}}
+
+    expose:
+      - "22"
+      - "{{FRONTEND_PORT}}"
+      - "{{BACKEND_PORT}}"
+
+    volumes:
+      - {{WORKSPACE_HOST}}:/workspace/{{PROJECT}}
+      - {{AUTHORIZED_KEYS_HOST}}:/etc/ssh/authorized_keys:ro
+      - {{SSHD_CONFIG_HOST}}:/etc/ssh/sshd_config:ro
+
+    restart: unless-stopped
+
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_CHROOT
+      - SETUID
+      - SETGID
+      - CHOWN
+      - KILL
+      - AUDIT_WRITE
+
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  {{DEV_NETWORK}}:
+    external: true
