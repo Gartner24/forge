@@ -1,5 +1,6 @@
 {
-  "dev_base_domain": "dev.gartnercodes.com",
+  "dev_base_domain": "dev.qyvos.com",
+  "dev_wildcard_cert_name": "dev.qyvos.com",
   "proxy_active_dev_conf_dir": "/opt/infra/proxy/conf.d/active/dev",
   "dev_workspace_root": "/opt/data/dev_workspaces",
   "dev_network": "dev-web",
