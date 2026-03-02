@@ -1,0 +1,427 @@
+#!/usr/bin/env python3
+"""
+forge/bin/devctl
+
+Admin-only CLI for provisioning Forge dev environments.
+
+Requirements:
+- Python 3.10+
+- docker + docker compose plugin available on the VPS
+- Run as root (recommended) or as a user with permission to run docker and write /opt paths.
+
+Usage:
+  devctl add-dev
+  devctl list-devs
+  devctl delete-dev --dev <dev> --project <project> [--purge]
+
+Config:
+  /opt/infra/forge/registry/forge.json
+Registry:
+  /opt/infra/forge/registry/projects.json
+  /opt/infra/forge/registry/devs.json
+Templates:
+  /opt/infra/forge/templates/dev-compose.yml.tmpl
+  /opt/infra/forge/templates/sshd_config.tmpl
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+
+@dataclass(frozen=True)
+class ForgeConfig:
+    dev_base_domain: str
+    dev_wildcard_cert_name: str
+    proxy_active_dev_conf_dir: str
+    dev_workspace_root: str
+    dev_network: str
+    default_dev_user: str
+    default_dev_uid: int
+    default_dev_gid: int
+
+
+@dataclass(frozen=True)
+class Project:
+    id: str
+    repo: str
+    default_branch: str
+    stack: str
+    preview_enabled: bool
+    frontend_port: int
+    backend_port: int
+    backend_path_prefix: str
+    cpus: str
+    memory: str
+
+    @property
+    def dev_image(self) -> str:
+        # Minimal mapping for now
+        # - "node" and "mixed" use node dev image
+        # - "python" uses python dev image
+        stack = self.stack.strip().lower()
+        if stack == "python":
+            return "forge-python-dev:latest"
+        return "forge-node-dev:latest"
+
+
+def _run(cmd: List[str], cwd: Optional[Path] = None, check: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=check, text=True, capture_output=True)
+
+
+def _load_json(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"Missing file: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, data: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+
+
+def _slug(s: str) -> str:
+    s = s.strip().lower()
+    s = re.sub(r"[^a-z0-9-]+", "-", s)
+    s = re.sub(r"-{2,}", "-", s)
+    s = s.strip("-")
+    if not s or len(s) > 40:
+        raise ValueError("Invalid identifier. Use lowercase letters, digits, and dashes (max ~40 chars).")
+    return s
+
+
+def _read_pubkey_from_input(pubkey_arg: Optional[str]) -> str:
+    """
+    Accept:
+      - a file path to a .pub key
+      - or a raw "ssh-ed25519 AAAA..." string
+      - or prompt user paste
+    """
+    if pubkey_arg:
+        p = Path(pubkey_arg).expanduser()
+        if p.exists() and p.is_file():
+            key = p.read_text(encoding="utf-8").strip()
+        else:
+            key = pubkey_arg.strip()
+    else:
+        print("Paste developer PUBLIC key (single line starting with ssh-ed25519 / ssh-rsa):")
+        key = sys.stdin.readline().strip()
+
+    if not (key.startswith("ssh-ed25519 ") or key.startswith("ssh-rsa ") or key.startswith("ecdsa-sha2-")):
+        raise ValueError("Invalid public key format. Expected ssh-ed25519/ssh-rsa/ecdsa-sha2- key line.")
+    return key
+
+
+def _render_template(template_text: str, variables: Dict[str, str]) -> str:
+    out = template_text
+    for k, v in variables.items():
+        out = out.replace("{{" + k + "}}", v)
+    # Fail fast if any unreplaced variables remain
+    leftovers = re.findall(r"{{[A-Z0-9_]+}}", out)
+    if leftovers:
+        raise ValueError(f"Template has unreplaced variables: {sorted(set(leftovers))}")
+    return out
+
+
+def _ensure_network_exists(network: str) -> None:
+    # Check docker network exists; create if not
+    try:
+        _run(["docker", "network", "inspect", network], check=True)
+    except subprocess.CalledProcessError:
+        _run(["docker", "network", "create", network], check=True)
+
+
+def _chown(path: Path, uid: int, gid: int) -> None:
+    # Use chown recursively; this is admin-only
+    _run(["chown", "-R", f"{uid}:{gid}", str(path)], check=True)
+
+
+def _docker_compose_up(cwd: Path) -> None:
+    _run(["docker", "compose", "up", "-d"], cwd=cwd, check=True)
+
+
+def _docker_compose_down(cwd: Path) -> None:
+    _run(["docker", "compose", "down"], cwd=cwd, check=True)
+
+
+def _select_project(projects: List[Project]) -> Project:
+    print("Select project:")
+    for idx, p in enumerate(projects, start=1):
+        print(f"  {idx}) {p.id}  (stack={p.stack}, preview={p.preview_enabled}, ports={p.frontend_port}/{p.backend_port})")
+    while True:
+        choice = input("Enter number: ").strip()
+        if not choice.isdigit():
+            continue
+        i = int(choice)
+        if 1 <= i <= len(projects):
+            return projects[i - 1]
+
+
+def _parse_projects(projects_json: Dict[str, Any]) -> List[Project]:
+    out: List[Project] = []
+    for p in projects_json.get("projects", []):
+        preview = p.get("preview", {}) or {}
+        resources = p.get("resources", {}) or {}
+        out.append(
+            Project(
+                id=str(p["id"]),
+                repo=str(p.get("repo", "")),
+                default_branch=str(p.get("default_branch", "main")),
+                stack=str(p.get("stack", "node")),
+                preview_enabled=bool(preview.get("enabled", False)),
+                frontend_port=int(preview.get("frontend_port", 5173)),
+                backend_port=int(preview.get("backend_port", 0)),
+                backend_path_prefix=str(preview.get("backend_path_prefix", "/api/")),
+                cpus=str(resources.get("cpus", "1.0")),
+                memory=str(resources.get("memory", "2g")),
+            )
+        )
+    if not out:
+        raise ValueError("No projects found in registry/projects.json")
+    return out
+
+
+def _dev_hostname(dev: str, project: str, dev_base_domain: str) -> str:
+    return f"{dev}-{project}.{dev_base_domain}"
+
+
+def _compose_vars(cfg: ForgeConfig, dev: str, project: Project, workspace_host: Path, keys_dir: Path, sshd_cfg_file: Path) -> Dict[str, str]:
+    return {
+        "DEV_IMAGE": project.dev_image,
+        "PROJECT": project.id,
+        "DEV": dev,
+        "DEV_NETWORK": cfg.dev_network,
+        "WORKSPACE_HOST": str(workspace_host),
+        "AUTHORIZED_KEYS_HOST": str(keys_dir),
+        "SSHD_CONFIG_HOST": str(sshd_cfg_file),
+        "FRONTEND_PORT": str(project.frontend_port),
+        "BACKEND_PORT": str(project.backend_port),
+        "CPUS": project.cpus,
+        "MEMORY": project.memory,
+    }
+
+
+def _load_forge_config(path: Path) -> ForgeConfig:
+    d = _load_json(path)
+    return ForgeConfig(
+        dev_base_domain=str(d["dev_base_domain"]),
+        dev_wildcard_cert_name=str(d["dev_wildcard_cert_name"]),
+        proxy_active_dev_conf_dir=str(d["proxy_active_dev_conf_dir"]),
+        dev_workspace_root=str(d["dev_workspace_root"]),
+        dev_network=str(d["dev_network"]),
+        default_dev_user=str(d.get("default_dev_user", "dev")),
+        default_dev_uid=int(d.get("default_dev_uid", 1001)),
+        default_dev_gid=int(d.get("default_dev_gid", 1001)),
+    )
+
+
+def _proxy_validate_reload() -> None:
+    _run(["docker", "exec", "nginx-proxy", "nginx", "-t"], check=True)
+    _run(["docker", "exec", "nginx-proxy", "nginx", "-s", "reload"], check=True)
+
+
+def cmd_add_dev(cfg: ForgeConfig, root: Path) -> None:
+    projects_path = root / "registry" / "projects.json"
+    devs_path = root / "registry" / "devs.json"
+    tmpl_compose_path = root / "templates" / "dev-compose.yml.tmpl"
+    tmpl_sshd_path = root / "templates" / "sshd_config.tmpl"
+    tmpl_nginx_path = root / "templates" / "nginx-dev-vhost.conf.tmpl"
+
+    projects_json = _load_json(projects_path)
+    projects = _parse_projects(projects_json)
+
+    dev_id = _slug(input("Developer id (e.g. santiago): "))
+    project = _select_project(projects)
+    pubkey = _read_pubkey_from_input(input("Public key (path or paste inline; leave empty to paste): ").strip() or None)
+
+    # Paths
+    ws_root = Path(cfg.dev_workspace_root)
+    workspace = ws_root / project.id / dev_id
+    keys_dir = ws_root / "_keys" / project.id / dev_id
+    sshd_dir = ws_root / "_sshd" / project.id / dev_id
+    sshd_cfg_file = sshd_dir / "sshd_config"
+
+    # Ensure network exists
+    _ensure_network_exists(cfg.dev_network)
+
+    # Create dirs
+    workspace.mkdir(parents=True, exist_ok=True)
+    keys_dir.mkdir(parents=True, exist_ok=True)
+    sshd_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write authorized key file for user "dev"
+    (keys_dir / cfg.default_dev_user).write_text(pubkey.strip() + "\n", encoding="utf-8")
+    os.chmod(keys_dir, 0o755)
+    os.chmod(keys_dir / cfg.default_dev_user, 0o644)
+
+    # Write sshd_config
+    sshd_template = tmpl_sshd_path.read_text(encoding="utf-8")
+    sshd_cfg_file.write_text(sshd_template, encoding="utf-8")
+    os.chmod(sshd_cfg_file, 0o644)
+
+    # Workspace ownership for dev user inside container (UID/GID 1001 by default)
+    _chown(workspace, cfg.default_dev_uid, cfg.default_dev_gid)
+
+    # Render compose.yml into workspace directory
+    compose_template = tmpl_compose_path.read_text(encoding="utf-8")
+    rendered = _render_template(compose_template, _compose_vars(cfg, dev_id, project, workspace, keys_dir, sshd_cfg_file))
+    compose_file = workspace / "compose.yml"
+    compose_file.write_text(rendered, encoding="utf-8")
+
+    # Bring up
+    print(f"Starting container dev-{project.id}-{dev_id}...")
+    _docker_compose_up(workspace)
+
+    hostname = _dev_hostname(dev_id, project.id, cfg.dev_base_domain)
+
+    nginx_template = tmpl_nginx_path.read_text(encoding="utf-8")
+
+    # If no backend, remove the backend location block by rendering a minimal template variant
+    backend_prefix = project.backend_path_prefix
+    backend_port = project.backend_port
+
+    render_vars = {
+        "HOSTNAME": hostname,
+        "WILDCARD_CERT_NAME": cfg.dev_wildcard_cert_name,
+        "PROJECT": project.id,
+        "DEV": dev_id,
+        "FRONTEND_PORT": str(project.frontend_port),
+        "BACKEND_PORT": str(backend_port),
+        "BACKEND_PATH_PREFIX": backend_prefix,
+    }
+
+    rendered_nginx = _render_template(nginx_template, render_vars)
+
+    # If backend_port is 0, strip the backend location block
+    if backend_port == 0:
+        rendered_nginx = re.sub(
+            r"\n\s*# Backend \(optional\)\n\s*location\s+.+?\{\n.*?\n\s*\}\n",
+            "\n",
+            rendered_nginx,
+            flags=re.DOTALL,
+        )
+
+    proxy_dev_dir = Path(cfg.proxy_active_dev_conf_dir)
+    proxy_dev_dir.mkdir(parents=True, exist_ok=True)
+
+    vhost_path = proxy_dev_dir / f"{dev_id}-{project.id}.conf"
+    vhost_path.write_text(rendered_nginx, encoding="utf-8")
+
+    # Validate and reload proxy
+    _proxy_validate_reload()
+
+    # Update devs.json
+    devs_json = _load_json(devs_path)
+    devs = devs_json.get("developers", [])
+    # Find or create developer record
+    rec = next((x for x in devs if x.get("id") == dev_id), None)
+    if rec is None:
+        rec = {"id": dev_id, "projects": []}
+        devs.append(rec)
+    if project.id not in rec["projects"]:
+        rec["projects"].append(project.id)
+
+    devs_json["developers"] = devs
+    _write_json(devs_path, devs_json)
+
+    print("\nProvisioned:")
+    print(f"  dev id:      {dev_id}")
+    print(f"  project:     {project.id}")
+    print(f"  container:   dev-{project.id}-{dev_id}")
+    print(f"  workspace:   {workspace}")
+    print(f"  hostname:    {hostname}")
+    print(f"  proxy vhost: {vhost_path}")
+    print("\nNext:")
+    print("  - DNS: ensure *.dev.qyvos.com points to the VPS IP.")
+    print("  - SSH: Rust gateway will be added next (so no container ports are exposed).")
+
+def cmd_list_devs(root: Path) -> None:
+    devs_path = root / "registry" / "devs.json"
+    devs_json = _load_json(devs_path)
+    devs = devs_json.get("developers", [])
+    if not devs:
+        print("No developers registered.")
+        return
+    for d in devs:
+        projects = ", ".join(d.get("projects", [])) or "-"
+        print(f"- {d.get('id')}: {projects}")
+
+
+def cmd_delete_dev(cfg: ForgeConfig, root: Path, dev: str, project: str, purge: bool) -> None:
+    dev_id = _slug(dev)
+    project_id = _slug(project)
+
+    ws_root = Path(cfg.dev_workspace_root)
+    workspace = ws_root / project_id / dev_id
+
+    if not workspace.exists():
+        raise FileNotFoundError(f"Workspace not found: {workspace}")
+
+    print(f"Stopping dev environment for {dev_id}/{project_id}...")
+    _docker_compose_down(workspace)
+
+    # Update devs.json (remove project from dev)
+    devs_path = root / "registry" / "devs.json"
+    devs_json = _load_json(devs_path)
+    devs = devs_json.get("developers", [])
+    rec = next((x for x in devs if x.get("id") == dev_id), None)
+    if rec:
+        rec["projects"] = [p for p in rec.get("projects", []) if p != project_id]
+        # keep dev record even if empty (admin choice), or remove if empty:
+        if not rec["projects"]:
+            # remove entirely
+            devs = [x for x in devs if x.get("id") != dev_id]
+        devs_json["developers"] = devs
+        _write_json(devs_path, devs_json)
+
+    if purge:
+        print(f"Purging workspace: {workspace}")
+        shutil.rmtree(workspace)
+    else:
+        print(f"Workspace preserved: {workspace}")
+
+    print("Done.")
+
+
+def main() -> int:
+    root = Path("/opt/infra/forge").resolve()
+    cfg_path = root / "registry" / "forge.json"
+    cfg = _load_forge_config(cfg_path)
+
+    parser = argparse.ArgumentParser(prog="devctl")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("add-dev")
+    sub.add_parser("list-devs")
+
+    pdel = sub.add_parser("delete-dev")
+    pdel.add_argument("--dev", required=True)
+    pdel.add_argument("--project", required=True)
+    pdel.add_argument("--purge", action="store_true", help="Delete workspace directory")
+
+    args = parser.parse_args()
+
+    if args.cmd == "add-dev":
+        cmd_add_dev(cfg, root)
+        return 0
+    if args.cmd == "list-devs":
+        cmd_list_devs(root)
+        return 0
+    if args.cmd == "delete-dev":
+        cmd_delete_dev(cfg, root, args.dev, args.project, args.purge)
+        return 0
+
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
