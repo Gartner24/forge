@@ -258,19 +258,18 @@ fn key_allowed_for_dev(path: &Path, offered: &PublicKey) -> Result<bool> {
         }
 
         // authorized_keys format: "type base64 [comment]".
-        // We only care about the type + base64 fields for matching, ignore any trailing comment.
+        // We only care about the *base64* field for matching, ignore type and any trailing comment.
         let mut parts = line.split_whitespace();
-        let first = match parts.next() {
+        let _key_type = match parts.next() {
+            Some(_) => (),
+            None => continue,
+        };
+        let base64 = match parts.next() {
             Some(s) => s,
             None => continue,
         };
-        let enc = if let Some(second) = parts.next() {
-            format!("{} {}", first, second)
-        } else {
-            first.to_string()
-        };
 
-        if let Ok(pk) = parse_public_key_base64(&enc) {
+        if let Ok(pk) = parse_public_key_base64(base64) {
             if &pk == offered {
                 return Ok(true);
             }
