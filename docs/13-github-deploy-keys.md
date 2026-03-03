@@ -25,6 +25,7 @@ Follow these steps once per **project** when using `devctl add-project`.
 2. When prompted:
 
    - enter the project id, repo URL, branch, stack, preview ports, and resources as needed
+   - you can safely provide a **GitHub HTTPS URL** (e.g. `https://github.com/owner/repo`); Forge will internally convert it to the equivalent SSH URL (`git@github.com:owner/repo.git`) when using the project deploy key for bootstrap clones
    - when asked \"Generate a GitHub deploy key for this project?\", answer `y`
 
 3. After running, `devctl` will:
