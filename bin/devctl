@@ -195,9 +195,19 @@ def _parse_projects(projects_json: Dict[str, Any]) -> List[Project]:
     for p in projects_json.get("projects", []):
         preview = p.get("preview", {}) or {}
         resources = p.get("resources", {}) or {}
+
+        # Enforce slug-safe project identifiers so they can be used
+        # consistently in container names, paths, and vhost filenames.
+        project_id = str(p["id"])
+        if _slug(project_id) != project_id:
+            raise ValueError(
+                f"Invalid project id '{project_id}' in registry/projects.json. "
+                "Use lowercase letters, digits, and dashes only."
+            )
+
         out.append(
             Project(
-                id=str(p["id"]),
+                id=project_id,
                 repo=str(p.get("repo", "")),
                 default_branch=str(p.get("default_branch", "main")),
                 stack=str(p.get("stack", "node")),
@@ -253,7 +263,101 @@ def _proxy_validate_reload() -> None:
     _run(["docker", "exec", "nginx-proxy", "nginx", "-s", "reload"], check=True)
 
 
-def cmd_add_dev(cfg: ForgeConfig, root: Path) -> None:
+def _cleanup_dev_project(
+    cfg: ForgeConfig,
+    root: Path,
+    dev_id: str,
+    project_id: str,
+    *,
+    purge_workspace: bool,
+    remove_dev_record: bool,
+) -> None:
+    """
+    Idempotent cleanup of a single (dev, project) environment.
+
+    - Stops/removes container (via compose when possible, else docker rm -f)
+    - Removes proxy vhost and reloads nginx
+    - Removes keys and sshd config directories
+    - Updates devs.json according to remove_dev_record
+    - Optionally purges the workspace directory
+    """
+    ws_root = Path(cfg.dev_workspace_root)
+    workspace = ws_root / project_id / dev_id
+    container_name = f"dev-{project_id}-{dev_id}"
+
+    keys_dir = ws_root / "_keys" / project_id / dev_id
+    sshd_dir = ws_root / "_sshd" / project_id / dev_id
+
+    proxy_dev_dir = Path(cfg.proxy_active_dev_conf_dir)
+    vhost_path = proxy_dev_dir / f"{dev_id}-{project_id}.conf"
+
+    print(f"Cleaning dev environment for {dev_id}/{project_id}...")
+
+    # 1) Stop/remove container: prefer compose if compose.yml exists, else docker rm
+    compose_file = workspace / "compose.yml"
+    if compose_file.exists():
+        try:
+            _docker_compose_down(workspace)
+        except subprocess.CalledProcessError:
+            _run(["docker", "rm", "-f", container_name], check=False)
+    else:
+        _run(["docker", "rm", "-f", container_name], check=False)
+
+    # 2) Remove proxy vhost (if present) + reload proxy safely
+    if vhost_path.exists():
+        try:
+            vhost_path.unlink()
+            _proxy_validate_reload()
+            print(f"Removed proxy vhost: {vhost_path}")
+        except Exception as e:
+            print(f"Warning: failed to remove/reload proxy vhost: {e}")
+
+    # 3) Remove keys and sshd config directories for this dev+project
+    if keys_dir.exists():
+        try:
+            shutil.rmtree(keys_dir)
+            print(f"Removed keys dir: {keys_dir}")
+        except Exception as e:
+            print(f"Warning: failed to remove keys dir: {e}")
+
+    if sshd_dir.exists():
+        try:
+            shutil.rmtree(sshd_dir)
+            print(f"Removed sshd dir: {sshd_dir}")
+        except Exception as e:
+            print(f"Warning: failed to remove sshd dir: {e}")
+
+    # 4) Update devs.json (remove project from dev mapping)
+    devs_path = root / "registry" / "devs.json"
+    try:
+        devs_json = _load_json(devs_path)
+    except FileNotFoundError:
+        devs_json = {"version": 1, "developers": []}
+
+    devs = devs_json.get("developers", [])
+    rec = next((x for x in devs if x.get("id") == dev_id), None)
+    if rec:
+        rec["projects"] = [p for p in rec.get("projects", []) if p != project_id]
+        if not rec["projects"]:
+            if remove_dev_record:
+                devs = [x for x in devs if x.get("id") != dev_id]
+            else:
+                rec["status"] = "disabled"
+        devs_json["developers"] = devs
+        _write_json(devs_path, devs_json)
+
+    # 5) Purge workspace only if requested
+    if purge_workspace and workspace.exists():
+        try:
+            shutil.rmtree(workspace)
+            print(f"Purged workspace: {workspace}")
+        except Exception as e:
+            print(f"Warning: failed to purge workspace {workspace}: {e}")
+    elif workspace.exists():
+        print(f"Workspace preserved: {workspace}")
+
+
+def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
     projects_path = root / "registry" / "projects.json"
     devs_path = root / "registry" / "devs.json"
     tmpl_compose_path = root / "templates" / "dev-compose.yml.tmpl"
@@ -273,6 +377,20 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path) -> None:
     keys_dir = ws_root / "_keys" / project.id / dev_id
     sshd_dir = ws_root / "_sshd" / project.id / dev_id
     sshd_cfg_file = sshd_dir / "sshd_config"
+
+    # Optional destructive recreate-from-zero path: fully tear down any existing
+    # environment for this dev+project, including the workspace, before
+    # provisioning a fresh environment.
+    if recreate:
+        print(f"Recreating dev environment from scratch for {dev_id}/{project.id} (workspace will be purged).")
+        _cleanup_dev_project(
+            cfg,
+            root,
+            dev_id=dev_id,
+            project_id=project.id,
+            purge_workspace=True,
+            remove_dev_record=False,
+        )
 
     # Ensure network exists
     _ensure_network_exists(cfg.dev_network)
@@ -412,140 +530,92 @@ def cmd_list_devs(root: Path) -> None:
         print(f"- {d.get('id')}: {projects}")
 
 
-def cmd_revoke(cfg: ForgeConfig, root: Path, dev: str, project: str, purge: bool) -> None:
+def cmd_delete_dev(
+    cfg: ForgeConfig,
+    root: Path,
+    dev: str,
+    project: Optional[str],
+    all_projects: bool,
+    purge: bool,
+    purge_all: bool,
+) -> int:
     dev_id = _slug(dev)
-    project_id = _slug(project)
 
-    ws_root = Path(cfg.dev_workspace_root)
-    workspace = ws_root / project_id / dev_id
-    container_name = f"dev-{project_id}-{dev_id}"
+    has_project = project is not None
+    if has_project and all_projects:
+        print("Error: specify either --project or --all-projects, not both.")
+        return 1
+    if not has_project and not all_projects:
+        print("Error: you must specify either --project or --all-projects.")
+        return 1
+    if has_project and purge_all:
+        print("Error: --purge-all is only valid with --all-projects.")
+        return 1
+    if all_projects and purge:
+        print("Error: --purge is only valid with --project.")
+        return 1
 
-    keys_dir = ws_root / "_keys" / project_id / dev_id
-    sshd_dir = ws_root / "_sshd" / project_id / dev_id
+    # Per-project delete: soft offboarding for a single project, preserving
+    # the developer record (status may become disabled if no projects remain).
+    if has_project:
+        project_id = _slug(project)
+        _cleanup_dev_project(
+            cfg,
+            root,
+            dev_id=dev_id,
+            project_id=project_id,
+            purge_workspace=purge,
+            remove_dev_record=False,
+        )
+        print("Done.")
+        return 0
 
-    proxy_dev_dir = Path(cfg.proxy_active_dev_conf_dir)
-    vhost_path = proxy_dev_dir / f"{dev_id}-{project_id}.conf"
-
-    print(f"Revoking {dev_id} from project {project_id}...")
-
-    # Stop/remove container: prefer compose if compose.yml exists, else docker rm
-    compose_file = workspace / "compose.yml"
-    if compose_file.exists():
-        try:
-            _docker_compose_down(workspace)
-        except subprocess.CalledProcessError:
-            _run(["docker", "rm", "-f", container_name], check=False)
-    else:
-        _run(["docker", "rm", "-f", container_name], check=False)
-
-    # Remove proxy vhost + reload
-    if vhost_path.exists():
-        vhost_path.unlink()
-        try:
-            _proxy_validate_reload()
-        except Exception as e:
-            print(f"Warning: proxy reload failed after vhost removal: {e}")
-
-    # Remove keys/sshd configs for this project env
-    if keys_dir.exists():
-        shutil.rmtree(keys_dir)
-    if sshd_dir.exists():
-        shutil.rmtree(sshd_dir)
-
-    # Update devs.json: remove project from dev, but keep dev record always
+    # Global delete: remove developer from all projects and then remove the
+    # developer record entirely. Workspaces are preserved by default and only
+    # purged when --purge-all is provided.
     devs_path = root / "registry" / "devs.json"
-    devs_json = _load_json(devs_path)
+    try:
+        devs_json = _load_json(devs_path)
+    except FileNotFoundError:
+        print(f"Developer {dev_id} not found (no devs.json); nothing to do.")
+        return 0
+
     devs = devs_json.get("developers", [])
     rec = next((x for x in devs if x.get("id") == dev_id), None)
-    if rec:
-        rec["projects"] = [p for p in rec.get("projects", []) if p != project_id]
-        if not rec["projects"]:
-            rec["status"] = "disabled"
+    if not rec:
+        print(f"Developer {dev_id} not found; nothing to do.")
+        return 0
+
+    project_ids = list(rec.get("projects", []))
+    if not project_ids:
+        # No projects; just remove the dev record.
+        devs = [d for d in devs if d.get("id") != dev_id]
         devs_json["developers"] = devs
         _write_json(devs_path, devs_json)
+        print(f"Removed empty developer record {dev_id}.")
+        return 0
 
-    # Purge workspace for this dev+project if requested
-    if purge and workspace.exists():
-        shutil.rmtree(workspace)
+    for project_id in project_ids:
+        _cleanup_dev_project(
+            cfg,
+            root,
+            dev_id=dev_id,
+            project_id=project_id,
+            purge_workspace=purge_all,
+            remove_dev_record=True,
+        )
 
-    print("Done.")
-
-
-
-def cmd_delete_dev(cfg: ForgeConfig, root: Path, dev: str, project: str, purge: bool) -> None:
-    dev_id = _slug(dev)
-    project_id = _slug(project)
-
-    ws_root = Path(cfg.dev_workspace_root)
-    workspace = ws_root / project_id / dev_id
-
-    container_name = f"dev-{project_id}-{dev_id}"
-
-    keys_dir = ws_root / "_keys" / project_id / dev_id
-    sshd_dir = ws_root / "_sshd" / project_id / dev_id
-
-    proxy_dev_dir = Path(cfg.proxy_active_dev_conf_dir)
-    vhost_path = proxy_dev_dir / f"{dev_id}-{project_id}.conf"
-
-    print(f"Stopping dev environment for {dev_id}/{project_id}...")
-
-    # 1) Try compose down if compose.yml exists; otherwise fall back to docker rm
-    compose_file = workspace / "compose.yml"
-    if compose_file.exists():
-        try:
-            _docker_compose_down(workspace)
-        except subprocess.CalledProcessError:
-            # If compose down fails, fall back to docker rm to ensure cleanup
-            _run(["docker", "rm", "-f", container_name], check=False)
-    else:
-        _run(["docker", "rm", "-f", container_name], check=False)
-
-    # 2) Remove proxy vhost (if present) + reload proxy safely
-    if vhost_path.exists():
-        try:
-            vhost_path.unlink()
-            _proxy_validate_reload()
-            print(f"Removed proxy vhost: {vhost_path}")
-        except Exception as e:
-            print(f"Warning: failed to remove/reload proxy vhost: {e}")
-
-    # 3) Remove keys and sshd config directories for this dev+project
-    if keys_dir.exists():
-        try:
-            shutil.rmtree(keys_dir)
-            print(f"Removed keys dir: {keys_dir}")
-        except Exception as e:
-            print(f"Warning: failed to remove keys dir: {e}")
-
-    if sshd_dir.exists():
-        try:
-            shutil.rmtree(sshd_dir)
-            print(f"Removed sshd dir: {sshd_dir}")
-        except Exception as e:
-            print(f"Warning: failed to remove sshd dir: {e}")
-
-    # 4) Update devs.json (remove project from dev mapping)
-    devs_path = root / "registry" / "devs.json"
-    devs_json = _load_json(devs_path)
-    devs = devs_json.get("developers", [])
-    rec = next((x for x in devs if x.get("id") == dev_id), None)
-    if rec:
-        rec["projects"] = [p for p in rec.get("projects", []) if p != project_id]
-        if not rec["projects"]:
-            devs = [x for x in devs if x.get("id") != dev_id]
-        devs_json["developers"] = devs
-        _write_json(devs_path, devs_json)
-
-    # 5) Purge workspace only if requested
-    if purge:
-        if workspace.exists():
-            shutil.rmtree(workspace)
-            print(f"Purged workspace: {workspace}")
-    else:
-        if workspace.exists():
-            print(f"Workspace preserved: {workspace}")
+    # Ensure the developer record is gone even if some projects were already missing.
+    try:
+        devs_json = _load_json(devs_path)
+    except FileNotFoundError:
+        devs_json = {"version": 1, "developers": []}
+    devs = [d for d in devs_json.get("developers", []) if d.get("id") != dev_id]
+    devs_json["developers"] = devs
+    _write_json(devs_path, devs_json)
 
     print("Done.")
+    return 0
 
 
 def main() -> int:
@@ -556,33 +626,52 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="devctl")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("add-dev")
+    padd = sub.add_parser("add-dev")
+    padd.add_argument(
+        "--recreate",
+        action="store_true",
+        help="Recreate dev environment from scratch for the selected dev+project (purges existing workspace).",
+    )
+
     sub.add_parser("list-devs")
 
     pdel = sub.add_parser("delete-dev")
-    pdel.add_argument("--dev", required=True)
-    pdel.add_argument("--project", required=True)
-    pdel.add_argument("--purge", action="store_true", help="Delete workspace directory")
-
-    prev = sub.add_parser("revoke")
-    prev.add_argument("--dev", required=True)
-    prev.add_argument("--project", required=True)
-    prev.add_argument("--purge", action="store_true", help="Delete workspace directory for this dev+project")
+    pdel.add_argument("--dev", required=True, help="Developer id")
+    pdel.add_argument("--project", help="Project id (for per-project delete)")
+    pdel.add_argument(
+        "--all-projects",
+        action="store_true",
+        help="Delete this developer from all projects.",
+    )
+    pdel.add_argument(
+        "--purge",
+        action="store_true",
+        help="Delete workspace directory for this dev+project (only with --project).",
+    )
+    pdel.add_argument(
+        "--purge-all",
+        action="store_true",
+        help="Delete all workspaces for this developer (only with --all-projects).",
+    )
 
     args = parser.parse_args()
 
     if args.cmd == "add-dev":
-        cmd_add_dev(cfg, root)
+        cmd_add_dev(cfg, root, recreate=args.recreate)
         return 0
     if args.cmd == "list-devs":
         cmd_list_devs(root)
         return 0
     if args.cmd == "delete-dev":
-        cmd_delete_dev(cfg, root, args.dev, args.project, args.purge)
-        return 0
-    if args.cmd == "revoke":
-        cmd_revoke(cfg, root, args.dev, args.project, args.purge)
-        return 0
+        return cmd_delete_dev(
+            cfg,
+            root,
+            dev=args.dev,
+            project=getattr(args, "project", None),
+            all_projects=getattr(args, "all_projects", False),
+            purge=getattr(args, "purge", False),
+            purge_all=getattr(args, "purge_all", False),
+        )
 
     return 1
 
