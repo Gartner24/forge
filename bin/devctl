@@ -36,7 +36,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 
 @dataclass(frozen=True)
@@ -1118,7 +1118,9 @@ def main() -> int:
         help="Delete all workspaces for this developer (only with --all-projects).",
     )
 
-    args = parser.parse_args()
+    # argparse.Namespace dynamic attributes are hard for static analyzers.
+    # Cast to Any here to keep branch-specific arg access readable.
+    args = cast(Any, parser.parse_args())
 
     if args.cmd == "add-project":
         return cmd_add_project(cfg, root)
