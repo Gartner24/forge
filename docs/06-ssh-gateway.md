@@ -58,6 +58,117 @@ Store logs:
 - `gateway/logs/audit.log` (append-only)
 - optionally mirror to `/opt/data/logs/gateway/`
 
+## Deployment (Docker on dev-web)
+
+The reference deployment runs the Rust gateway as a Docker container on the `dev-web` network, alongside the global proxy.
+
+### 1. Build the gateway image
+
+On the Forge host, from the `gateway/` crate directory:
+
+```bash
+cd /opt/infra/forge/gateway    # adjust if repo lives elsewhere
+sudo docker build -t forge-gateway:latest .
+```
+
+The provided `Dockerfile` builds `forge-gateway` in release mode and installs it as `/usr/local/bin/forge-gateway` in the image, listening on port `2224`.
+
+### 2. Compose service (proxy stack)
+
+In the proxy stack (e.g. `/opt/infra/proxy/compose.yml`), add a `gateway` service:
+
+```yaml
+services:
+  gateway:
+    image: forge-gateway:latest
+    restart: unless-stopped
+    networks:
+      - dev-web
+    ports:
+      - "2224:2224"
+    volumes:
+      - /opt/infra/forge/registry:/opt/infra/forge/registry:ro
+      - /opt/infra/forge/gateway/keys:/opt/infra/forge/gateway/keys
+      - /opt/infra/forge/gateway/authorized_keys:/opt/infra/forge/gateway/authorized_keys
+      - /opt/infra/forge/gateway/logs:/opt/infra/forge/gateway/logs
+
+networks:
+  dev-web:
+    external: true
+```
+
+Notes:
+- The container **must** attach to `dev-web` so it can reach `dev-<project>-<dev>:22` by Docker DNS.
+- Port `2224` on the host is the single public SSH entrypoint for developers.
+
+### 3. Gateway config (`gateway.toml`)
+
+On the host, create `/opt/infra/forge/registry/gateway.toml`:
+
+```toml
+[server]
+listen_addr = "0.0.0.0:2224"
+host_key_path = "/opt/infra/forge/gateway/keys/ssh_host_ed25519_key"
+
+[paths]
+devs_json = "/opt/infra/forge/registry/devs.json"
+authorized_keys_dir = "/opt/infra/forge/gateway/authorized_keys"
+audit_log_dir = "/opt/infra/forge/gateway/logs"
+```
+
+Also ensure the directories exist:
+
+```bash
+sudo mkdir -p /opt/infra/forge/gateway/{keys,authorized_keys,logs}
+```
+
+### 4. Host key creation and permissions
+
+Forge expects a persistent ed25519 host key for the gateway. Generate it **on the host**:
+
+```bash
+sudo ssh-keygen -t ed25519 -N '' \
+  -f /opt/infra/forge/gateway/keys/ssh_host_ed25519_key
+
+# If the gateway container runs as uid 1000 (`gateway` user), fix ownership:
+sudo chown -R 1000:1000 /opt/infra/forge/gateway/keys
+```
+
+The gateway reads this key from `host_key_path` at startup; it will not attempt to regenerate it if it already exists.
+
+### 5. Firewall and DNS
+
+On the host:
+
+```bash
+sudo ufw allow 2224/tcp
+```
+
+In DNS:
+
+- Create `ssh.dev.<dev_base_domain>` pointing to the VPS public IP, for example:
+  - `ssh.dev.qyvos.com -> <VPS IP>`
+
+### 6. Starting and verifying the service
+
+From the proxy stack directory (e.g. `/opt/infra/proxy`):
+
+```bash
+sudo docker compose up -d gateway
+```
+
+Verify:
+
+```bash
+docker ps | grep gateway
+sudo ss -lntp | grep 2224
+sudo docker logs gateway --tail=50
+```
+
+You should see:
+- a listener on `0.0.0.0:2224`, and
+- log lines similar to `starting gateway on 0.0.0.0:2224` with no fatal errors.
+
 ## Operational modes
 
 - Terminal: normal ssh client uses ProxyJump (gateway) to reach container.
