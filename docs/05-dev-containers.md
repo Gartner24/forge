@@ -70,8 +70,9 @@ Remote-SSH onboarding (developer workflow):
 
    ```sshconfig
    Host <dev>-<project>
-     HostName <dev>-<project>.dev.<dev_base_domain>
-     User dev
+     HostName ssh.dev.<dev_base_domain>
+     Port 2224
+     User <dev>-<project>            # dev-project pair, e.g. santiago-tiap
      IdentityFile ~/.ssh/id_ed25519    # or the path to the developer's SSH key
      StrictHostKeyChecking accept-new
    ```

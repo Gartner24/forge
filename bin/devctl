@@ -121,6 +121,20 @@ def _read_pubkey_from_input(pubkey_arg: Optional[str]) -> str:
     return key
 
 
+def _append_gateway_authorized_key(dev_id: str, pubkey: str) -> None:
+    """
+    Append a developer SSH public key to the Rust gateway's authorized_keys store.
+
+    Keys are stored under:
+      /opt/infra/forge/gateway/authorized_keys/<dev_id>.pub
+    """
+    gateway_dir = Path("/opt/infra/forge/gateway/authorized_keys")
+    gateway_dir.mkdir(parents=True, exist_ok=True)
+    path = gateway_dir / f"{dev_id}.pub"
+    with path.open("a", encoding="utf-8") as f:
+        f.write(pubkey.strip() + "\n")
+
+
 def _render_template(template_text: str, variables: Dict[str, str]) -> str:
     out = template_text
     for k, v in variables.items():
@@ -598,6 +612,21 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
             input("Developer SSH public key (path or paste inline; leave empty to paste): ").strip() or None
         )
 
+    # Optional: also register this key for the Rust SSH gateway so the developer
+    # can connect via ssh.dev.<domain>:2224 using their normal SSH key.
+    try:
+        gw_choice = input(
+            "Also register this developer SSH key for the Rust SSH gateway? [Y/n]: "
+        ).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        gw_choice = "n"
+    if gw_choice in ("", "y", "yes"):
+        try:
+            _append_gateway_authorized_key(dev_id, pubkey)
+            print("Registered developer SSH key for the Rust gateway.")
+        except Exception as e:
+            print(f"Warning: failed to register key for gateway: {e}")
+
     # Optional destructive recreate-from-zero path: fully tear down any existing
     # environment for this dev+project, including the workspace, before
     # provisioning a fresh environment.
@@ -799,6 +828,32 @@ def cmd_list_devs(root: Path) -> None:
         print(f"- {d.get('id')}: {projects}")
 
 
+def cmd_gateway_add_key(root: Path, dev: str, pubkey_arg: Optional[str]) -> int:
+    """
+    Manually register a developer SSH public key for the Rust SSH gateway.
+
+    This writes the key into:
+      /opt/infra/forge/gateway/authorized_keys/<dev>.pub
+    """
+    dev_id = _slug(dev)
+
+    # Best-effort validation against devs.json so typos are caught early.
+    devs_path = root / "registry" / "devs.json"
+    try:
+        devs_json = _load_json(devs_path)
+        devs = devs_json.get("developers", [])
+        rec = next((x for x in devs if x.get("id") == dev_id), None)
+        if rec is None:
+            print(f"Warning: developer {dev_id} not found in devs.json; adding gateway key anyway.")
+    except FileNotFoundError:
+        print(f"Warning: devs.json not found at {devs_path}; adding gateway key without registry validation.")
+
+    pubkey = _read_pubkey_from_input(pubkey_arg)
+    _append_gateway_authorized_key(dev_id, pubkey)
+    print(f"Added gateway authorized key for dev '{dev_id}'.")
+    return 0
+
+
 def cmd_delete_dev(
     cfg: ForgeConfig,
     root: Path,
@@ -904,6 +959,13 @@ def main() -> int:
         help="Recreate dev environment from scratch for the selected dev+project (purges existing workspace).",
     )
 
+    pgw = sub.add_parser("gateway-add-key")
+    pgw.add_argument("--dev", required=True, help="Developer id")
+    pgw.add_argument(
+        "--pubkey",
+        help="Developer SSH public key (path to .pub file or inline). If omitted, you will be prompted to paste it.",
+    )
+
     sub.add_parser("list-devs")
 
     pdel = sub.add_parser("delete-dev")
@@ -932,6 +994,12 @@ def main() -> int:
     if args.cmd == "add-dev":
         cmd_add_dev(cfg, root, recreate=args.recreate)
         return 0
+    if args.cmd == "gateway-add-key":
+        return cmd_gateway_add_key(
+            root,
+            dev=args.dev,
+            pubkey_arg=getattr(args, "pubkey", None),
+        )
     if args.cmd == "list-devs":
         cmd_list_devs(root)
         return 0

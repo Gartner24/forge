@@ -18,6 +18,7 @@ It must:
 - `devctl add-project`
 - `devctl add-dev`
 - `devctl list-devs`
+- `devctl gateway-add-key`
 - `devctl delete-dev`
 
 ## add-project
@@ -88,12 +89,13 @@ Repo bootstrap:
 
 SSH config snippet:
 - After a successful `add-dev` run, `devctl` prints an SSH config snippet that admins can send to the developer.
-- The snippet is meant to be pasted into the developer's local `~/.ssh/config` and looks like:
+- The snippet is meant to be pasted into the developer's local `~/.ssh/config` and, once the Rust SSH gateway is enabled, looks like:
 
   ```sshconfig
   Host <dev>-<project>
-    HostName <dev>-<project>.dev.<dev_base_domain>
-    User dev
+    HostName ssh.dev.<dev_base_domain>
+    Port 2224
+    User <dev>-<project>            # dev-project pair, e.g. santiago-tiap
     IdentityFile ~/.ssh/id_ed25519    # or the path to the developer's SSH key
     StrictHostKeyChecking accept-new
   ```
@@ -102,8 +104,9 @@ SSH config snippet:
 
   ```sshconfig
   Host santiago-tiap
-    HostName santiago-tiap.dev.qyvos.com
-    User dev
+    HostName ssh.dev.qyvos.com
+    Port 2224
+    User santiago-tiap
     IdentityFile ~/.ssh/id_ed25519
     StrictHostKeyChecking accept-new
   ```
@@ -121,6 +124,23 @@ Outputs to admin:
 Lists developers and the projects they are currently associated with, as recorded in `registry/devs.json`:
 
 - Format: `<dev-id>: <project1>, <project2>, ...`
+
+## gateway-add-key
+
+`devctl gateway-add-key` manages the Rust SSH gateway's `authorized_keys` store.
+
+- Command:
+  - `devctl gateway-add-key --dev <dev> [--pubkey <path-or-inline>]`
+- Behavior:
+  - Normalizes `<dev>` via the same slug rules used elsewhere (lower-case, alnum + dashes).
+  - Optionally validates that the developer exists in `registry/devs.json` (prints a warning if not found).
+  - Reads the developer SSH public key:
+    - from `--pubkey` if provided (either a `.pub` file path or an inline `ssh-ed25519 ...` / `ssh-rsa ...` line), or
+    - interactively from stdin if `--pubkey` is omitted.
+  - Appends the key to `/opt/infra/forge/gateway/authorized_keys/<dev>.pub`, creating the directory/file as needed.
+- Typical use:
+  - Called automatically from `devctl add-dev` when the admin chooses to \"also register this developer SSH key for the Rust SSH gateway\".
+  - Can also be called manually to add extra keys or fix mistakes without reprovisioning containers.
 
 ## delete-dev
 
