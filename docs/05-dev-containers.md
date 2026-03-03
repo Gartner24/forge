@@ -64,6 +64,21 @@ Developers must still:
 - be granted write access to the repository on GitHub
 - configure `user.name` / `user.email` inside the container so commits are attributed correctly.
 
+## Developer SSH keys and gateway keys
+
+Forge tracks developer SSH public keys in two places:
+
+- **Gateway `authorized_keys` (canonical)**: `/opt/infra/forge/gateway/authorized_keys/<dev>.pub`
+  - One file per developer id (e.g. `santiago.pub`).
+  - Used by the Rust SSH gateway to decide whether to accept `publickey` auth for `<dev>-<project>`.
+  - Managed by `devctl add-dev` and `devctl gateway-add-key`; do not edit manually.
+
+- **Container `_keys` (derived)**: `/opt/data/dev_workspaces/_keys/<project>/<dev>/dev`
+  - Written automatically by `devctl` when provisioning or updating a dev environment.
+  - Mirrors the same key into the dev container’s `authorized_keys` so `sshd` inside the container accepts it.
+
+The gateway store is the **source of truth**; container `_keys` entries are treated as derived and can be safely regenerated from the canonical gateway key.
+
 Remote-SSH onboarding (developer workflow):
 1. Admin runs `devctl add-dev` for the developer and project.
 2. At the end of the command, `devctl` prints an SSH config snippet like:
