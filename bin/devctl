@@ -164,27 +164,29 @@ def _ensure_deploy_keypair(deploy_dir: Path, label: str) -> Path:
     priv_key = deploy_dir / "id_ed25519"
     pub_key = deploy_dir / "id_ed25519.pub"
 
-    if priv_key.exists():
-        return priv_key
+    if not priv_key.exists():
+        deploy_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(deploy_dir, 0o700)
 
-    deploy_dir.mkdir(parents=True, exist_ok=True)
+        _run(
+            [
+                "ssh-keygen",
+                "-t",
+                "ed25519",
+                "-N",
+                "",
+                "-C",
+                label,
+                "-f",
+                str(priv_key),
+            ],
+            check=True,
+        )
+
+    # Ensure permissions are correct and that the deploy key directory is owned
+    # by the default dev user so the container's dev user (uid/gid 1001) can
+    # read the key via the bind mount.
     os.chmod(deploy_dir, 0o700)
-
-    _run(
-        [
-            "ssh-keygen",
-            "-t",
-            "ed25519",
-            "-N",
-            "",
-            "-C",
-            label,
-            "-f",
-            str(priv_key),
-        ],
-        check=True,
-    )
-
     os.chmod(priv_key, 0o600)
     if pub_key.exists():
         os.chmod(pub_key, 0o644)
@@ -307,6 +309,10 @@ def cmd_add_project(cfg: ForgeConfig, root: Path) -> int:
     if choice == "y":
         deploy_dir = _project_deploy_key_dir(cfg, project_id)
         priv_key = _ensure_deploy_keypair(deploy_dir, label=f"forge-project-{project_id}")
+        # Make the deploy key directory and keys owned by the default dev user so
+        # the container's dev user (uid/gid 1001 by default) can read them via
+        # the bind mount at /home/dev/.ssh/forge_deploy.
+        _chown(deploy_dir, cfg.default_dev_uid, cfg.default_dev_gid)
         pub_key_path = priv_key.with_suffix(".pub")
         pub_key = pub_key_path.read_text(encoding="utf-8").strip() if pub_key_path.exists() else ""
 
@@ -637,7 +643,7 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
             ssh_mount_path = f"/home/{cfg.default_dev_user}/.ssh/forge_deploy"
             git_ssh_cmd = (
                 f"GIT_SSH_COMMAND='ssh -i {ssh_mount_path}/id_ed25519 "
-                "-o IdentitiesOnly=yes -o StrictHostChecking=accept-new'"
+                "-o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new'"
             )
             clone_cmd = (
                 f"if [ ! -d /workspace/{project.id}/.git ]; then "
