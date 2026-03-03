@@ -86,9 +86,31 @@ Repo bootstrap:
     - `devctl` prints stdout/stderr from the clone command and a brief \"next steps\" message.
     - Developers or admins can then fix credentials and run `git clone` / `git pull` manually from inside the container.
 
+SSH config snippet:
+- After a successful `add-dev` run, `devctl` prints an SSH config snippet that admins can send to the developer.
+- The snippet is meant to be pasted into the developer's local `~/.ssh/config` and looks like:
+
+  ```sshconfig
+  Host <dev>-<project>
+    HostName <dev>-<project>.dev.<dev_base_domain>
+    User dev
+    IdentityFile ~/.ssh/id_ed25519    # or the path to the developer's SSH key
+    StrictHostKeyChecking accept-new
+  ```
+
+- Example for developer `santiago` on project `tiap` with base domain `dev.qyvos.com`:
+
+  ```sshconfig
+  Host santiago-tiap
+    HostName santiago-tiap.dev.qyvos.com
+    User dev
+    IdentityFile ~/.ssh/id_ed25519
+    StrictHostKeyChecking accept-new
+  ```
+
 Outputs to admin:
 - DNS checklist (if wildcard not used)
-- SSH config snippet for ProxyJump / Remote-SSH
+- SSH config snippet for Cursor / VS Code Remote-SSH
 - verification commands:
   - container running
   - ssh connection

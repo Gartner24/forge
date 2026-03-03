@@ -46,7 +46,7 @@ Recommendation:
 - For private repos, use read-only **per-project** deploy keys managed by Forge for **initial clone only**, and let developers push with their own GitHub credentials from inside the container.
 See `docs/13-github-deploy-keys.md` for a step-by-step GitHub tutorial.
 
-## Git authentication
+## Git authentication and Remote-SSH onboarding
 
 Developers authenticate to GitHub from inside the container:
 - recommended: SSH keys in the container user’s home (developer-managed)
@@ -63,6 +63,26 @@ Developers must still:
 - add their own SSH key to their GitHub account
 - be granted write access to the repository on GitHub
 - configure `user.name` / `user.email` inside the container so commits are attributed correctly.
+
+Remote-SSH onboarding (developer workflow):
+1. Admin runs `devctl add-dev` for the developer and project.
+2. At the end of the command, `devctl` prints an SSH config snippet like:
+
+   ```sshconfig
+   Host <dev>-<project>
+     HostName <dev>-<project>.dev.<dev_base_domain>
+     User dev
+     IdentityFile ~/.ssh/id_ed25519    # or the path to the developer's SSH key
+     StrictHostKeyChecking accept-new
+   ```
+
+3. The admin sends this snippet to the developer.
+4. On the developer’s machine:
+   - paste the snippet into `~/.ssh/config`
+   - ensure the `IdentityFile` path points to an SSH key that is added to their GitHub account
+5. In Cursor / VS Code:
+   - use the Remote-SSH extension to connect to the configured `Host` (e.g. `santiago-tiap`)
+   - open `/workspace/<project>` inside the container and work as usual.
 
 ## Security defaults
 
