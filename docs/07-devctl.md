@@ -96,24 +96,43 @@ Repo bootstrap:
 
 SSH config snippet:
 - After a successful `add-dev` run, `devctl` prints an SSH config snippet that admins can send to the developer.
-- The snippet is meant to be pasted into the developer's local `~/.ssh/config` and, once the Rust SSH gateway is enabled, looks like:
+- The snippet is meant to be pasted into the developer's local `~/.ssh/config` and uses `ProxyJump`:
+  - first hop: authenticate to Forge gateway (`ssh.<dev_base_domain>:2224`) as `<dev>-<project>`
+  - second hop: SSH from gateway to `dev-<project>-<dev>:22` as `dev`
+- Example:
 
   ```sshconfig
-  Host <dev>-<project>
-    HostName ssh.dev.<dev_base_domain>
+  Host <dev>-<project>-gw
+    HostName ssh.<dev_base_domain>
     Port 2224
-    User <dev>-<project>            # dev-project pair, e.g. santiago-tiap
-    IdentityFile ~/.ssh/id_ed25519    # or the path to the developer's SSH key
+    User <dev>-<project>
+    IdentityFile ~/.ssh/id_ed25519
+    StrictHostKeyChecking accept-new
+
+  Host <dev>-<project>
+    HostName dev-<project>-<dev>
+    Port 22
+    User dev
+    ProxyJump <dev>-<project>-gw
+    IdentityFile ~/.ssh/id_ed25519
     StrictHostKeyChecking accept-new
   ```
 
 - Example for developer `santiago` on project `tiap` with base domain `dev.qyvos.com`:
 
   ```sshconfig
-  Host santiago-tiap
+  Host santiago-tiap-gw
     HostName ssh.dev.qyvos.com
     Port 2224
     User santiago-tiap
+    IdentityFile ~/.ssh/id_ed25519
+    StrictHostKeyChecking accept-new
+
+  Host santiago-tiap
+    HostName dev-tiap-santiago
+    Port 22
+    User dev
+    ProxyJump santiago-tiap-gw
     IdentityFile ~/.ssh/id_ed25519
     StrictHostKeyChecking accept-new
   ```

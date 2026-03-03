@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -5,11 +6,13 @@ use std::process::Command;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use russh::keys::{load_secret_key, parse_public_key_base64, HashAlg, PrivateKey, PublicKey};
-use russh::server::{Auth, Handler, Server};
+use russh::keys::{load_secret_key, parse_public_key_base64, PrivateKey, PublicKey};
+use russh::server::{Auth, Handler, Msg, Server};
 use russh::MethodSet;
 use serde::Deserialize;
-use tokio::sync::RwLock;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{error, info, warn};
 
 #[derive(Debug, Deserialize, Clone)]
@@ -250,7 +253,6 @@ fn key_allowed_for_dev(path: &Path, offered: &PublicKey) -> Result<bool> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(e.into()),
     };
-    let offered_fp = offered.fingerprint(HashAlg::default()).to_string();
 
     for line in data.lines() {
         let line = line.trim();
@@ -271,31 +273,12 @@ fn key_allowed_for_dev(path: &Path, offered: &PublicKey) -> Result<bool> {
         };
 
         if let Ok(pk) = parse_public_key_base64(base64) {
-            let parsed_fp = pk.fingerprint(HashAlg::default()).to_string();
             // Compare only cryptographic key material. PublicKey equality in the
             // underlying ssh-key crate also includes comment metadata, which may
             // differ between parsed authorized_keys entries and offered client keys.
             if pk.key_data() == offered.key_data() {
-                info!(
-                    "publickey match in {} (offered_fp={}, parsed_fp={})",
-                    path.display(),
-                    offered_fp,
-                    parsed_fp
-                );
                 return Ok(true);
             }
-            warn!(
-                "publickey mismatch in {} (offered_fp={}, parsed_fp={})",
-                path.display(),
-                offered_fp,
-                parsed_fp
-            );
-        } else {
-            warn!(
-                "failed to parse authorized_keys line in {} (base64 starts with '{}...')",
-                path.display(),
-                &base64.chars().take(16).collect::<String>()
-            );
         }
     }
 
@@ -311,6 +294,8 @@ struct GatewayHandler {
     peer: Option<SocketAddr>,
     dev_id: Option<String>,
     project_id: Option<String>,
+    // Per-channel writer queues for direct-tcpip channels proxied to container sshd.
+    tcp_writers: Arc<Mutex<HashMap<russh::ChannelId, mpsc::Sender<Vec<u8>>>>>,
 }
 
 impl russh::server::Server for GatewayServer {
@@ -322,6 +307,7 @@ impl russh::server::Server for GatewayServer {
             peer: peer_addr,
             dev_id: None,
             project_id: None,
+            tcp_writers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -408,6 +394,154 @@ impl Handler for GatewayHandler {
         }
 
         Ok(Auth::Accept)
+    }
+
+    async fn channel_open_session(
+        &mut self,
+        _channel: russh::Channel<Msg>,
+        _session: &mut russh::server::Session,
+    ) -> Result<bool, Self::Error> {
+        // This gateway is intentionally transport-only: interactive session channels
+        // are not terminated on the gateway itself.
+        Ok(false)
+    }
+
+    async fn channel_open_direct_tcpip(
+        &mut self,
+        channel: russh::Channel<Msg>,
+        _host_to_connect: &str,
+        port_to_connect: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        session: &mut russh::server::Session,
+    ) -> Result<bool, Self::Error> {
+        let (dev_id, project_id) = match (&self.dev_id, &self.project_id) {
+            (Some(d), Some(p)) => (d.clone(), p.clone()),
+            _ => {
+                warn!("direct-tcpip requested before authentication");
+                return Ok(false);
+            }
+        };
+
+        if port_to_connect != 22 {
+            warn!(
+                "rejecting direct-tcpip for dev={} project={} requested_port={}",
+                dev_id, project_id, port_to_connect
+            );
+            if let Some(peer) = self.peer {
+                self.state.log_audit(
+                    Some(peer),
+                    &dev_id,
+                    &project_id,
+                    "rejected",
+                    "direct-tcpip-invalid-port",
+                );
+            }
+            return Ok(false);
+        }
+
+        let target_host = format!("dev-{}-{}", project_id, dev_id);
+        let target = format!("{}:22", target_host);
+        let stream = match TcpStream::connect(&target).await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(
+                    "failed to connect upstream container for dev={} project={} target={}: {}",
+                    dev_id, project_id, target, e
+                );
+                if let Some(peer) = self.peer {
+                    self.state.log_audit(
+                        Some(peer),
+                        &dev_id,
+                        &project_id,
+                        "rejected",
+                        "direct-tcpip-upstream-connect-failed",
+                    );
+                }
+                return Ok(false);
+            }
+        };
+
+        let channel_id = channel.id();
+        let handle = session.handle();
+        let (mut reader, mut writer) = stream.into_split();
+        let (tx, mut rx) = mpsc::channel::<Vec<u8>>(128);
+
+        self.tcp_writers.lock().await.insert(channel_id, tx);
+
+        // Client->upstream writer task.
+        tokio::spawn(async move {
+            while let Some(buf) = rx.recv().await {
+                if writer.write_all(&buf).await.is_err() {
+                    break;
+                }
+            }
+            let _ = writer.shutdown().await;
+        });
+
+        // Upstream->client reader task.
+        tokio::spawn(async move {
+            let mut buf = vec![0_u8; 32 * 1024];
+            loop {
+                let n = match reader.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => n,
+                    Err(_) => break,
+                };
+                let chunk = russh::CryptoVec::from(buf[..n].to_vec());
+                if handle.data(channel_id, chunk).await.is_err() {
+                    break;
+                }
+            }
+            let _ = handle.eof(channel_id).await;
+            let _ = handle.close(channel_id).await;
+        });
+
+        if let Some(peer) = self.peer {
+            self.state.log_audit(
+                Some(peer),
+                &dev_id,
+                &project_id,
+                "accepted",
+                "direct-tcpip-open",
+            );
+        }
+        Ok(true)
+    }
+
+    async fn data(
+        &mut self,
+        channel: russh::ChannelId,
+        data: &[u8],
+        _session: &mut russh::server::Session,
+    ) -> Result<(), Self::Error> {
+        let tx = {
+            let guard = self.tcp_writers.lock().await;
+            guard.get(&channel).cloned()
+        };
+
+        if let Some(tx) = tx {
+            let _ = tx.send(data.to_vec()).await;
+        }
+        Ok(())
+    }
+
+    async fn channel_eof(
+        &mut self,
+        channel: russh::ChannelId,
+        _session: &mut russh::server::Session,
+    ) -> Result<(), Self::Error> {
+        self.tcp_writers.lock().await.remove(&channel);
+        Ok(())
+    }
+
+    async fn channel_close(
+        &mut self,
+        channel: russh::ChannelId,
+        _session: &mut russh::server::Session,
+    ) -> Result<(), Self::Error> {
+        self.tcp_writers.lock().await.remove(&channel);
+        Ok(())
     }
 }
 
