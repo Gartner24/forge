@@ -33,6 +33,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -116,8 +117,43 @@ def _read_pubkey_from_input(pubkey_arg: Optional[str]) -> str:
         print("Paste developer PUBLIC key (single line starting with ssh-ed25519 / ssh-rsa):")
         key = sys.stdin.readline().strip()
 
-    if not (key.startswith("ssh-ed25519 ") or key.startswith("ssh-rsa ") or key.startswith("ecdsa-sha2-")):
-        raise ValueError("Invalid public key format. Expected ssh-ed25519/ssh-rsa/ecdsa-sha2- key line.")
+    parts = key.split()
+    if len(parts) < 2:
+        raise ValueError("Invalid public key format. Expected '<type> <base64> [comment]'.")
+
+    key_type, key_b64 = parts[0], parts[1]
+    if not (
+        key_type.startswith("ssh-ed25519")
+        or key_type.startswith("ssh-rsa")
+        or key_type.startswith("ecdsa-sha2-")
+    ):
+        raise ValueError("Invalid public key type. Expected ssh-ed25519/ssh-rsa/ecdsa-sha2-*.")
+
+    # Fast fail for obvious placeholder/truncated input (e.g. AAAA...).
+    if not re.fullmatch(r"[A-Za-z0-9+/=]+", key_b64):
+        raise ValueError(
+            "Invalid SSH public key payload. Base64 section contains invalid characters "
+            "(did you paste a truncated key like 'AAAA...'? )."
+        )
+
+    # Canonicalize to one line and validate with ssh-keygen to reject malformed keys.
+    key = " ".join(parts)
+    with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as tf:
+        tf.write(key + "\n")
+        temp_path = tf.name
+    try:
+        p = _run(["ssh-keygen", "-lf", temp_path], check=False)
+        if p.returncode != 0:
+            raise ValueError(
+                "Invalid SSH public key payload. Ensure you pasted the full .pub line from "
+                "the developer machine (not shortened with '...')."
+            )
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+
     return key
 
 
@@ -851,13 +887,24 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
     print("  - SSH: use the SSH config snippet below on the developer's machine for Remote-SSH.")
 
     host_alias = f"{dev_id}-{project.id}"
+    gw_alias = f"{host_alias}-gw"
+    container_host = f"dev-{project.id}-{dev_id}"
     print("\nSSH config snippet for Cursor / VS Code")
     print("--------------------------------------")
     print("Copy this into the developer's local ~/.ssh/config file:")
     print()
+    print(f"Host {gw_alias}")
+    print(f"  HostName ssh.{cfg.dev_base_domain}")
+    print("  Port 2224")
+    print(f"  User {dev_id}-{project.id}")
+    print("  IdentityFile ~/.ssh/id_ed25519    # or the path to the developer's SSH key")
+    print("  StrictHostKeyChecking accept-new")
+    print()
     print(f"Host {host_alias}")
-    print(f"  HostName {hostname}")
+    print(f"  HostName {container_host}")
+    print("  Port 22")
     print("  User dev")
+    print(f"  ProxyJump {gw_alias}")
     print("  IdentityFile ~/.ssh/id_ed25519    # or the path to the developer's SSH key")
     print("  StrictHostKeyChecking accept-new")
 

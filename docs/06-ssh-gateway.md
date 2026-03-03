@@ -14,10 +14,11 @@ To satisfy this, dev containers run OpenSSH (`sshd`). The gateway enforces authe
 
 ## High-level behavior
 
-- Developers SSH to the gateway only (e.g. `ssh.dev.domain.com:2224`).
+- Developers authenticate to the gateway (e.g. `ssh.dev.domain.com:2224`) as `<dev>-<project>`.
 - Gateway authenticates via public key.
 - Gateway resolves developer identity and allowed projects.
-- Gateway forwards the SSH connection to the correct dev container on `dev-web` (container sshd).
+- Gateway allows `direct-tcpip` forwarding only to the matching dev container (`dev-<project>-<dev>:22`) on `dev-web`.
+- Client-side `ProxyJump` then completes the second SSH hop to container `sshd` as user `dev`.
 
 Developers never receive a host shell.
 

@@ -84,11 +84,19 @@ Remote-SSH onboarding (developer workflow):
 2. At the end of the command, `devctl` prints an SSH config snippet like:
 
    ```sshconfig
-   Host <dev>-<project>
-     HostName ssh.dev.<dev_base_domain>
+   Host <dev>-<project>-gw
+     HostName ssh.<dev_base_domain>
      Port 2224
-     User <dev>-<project>            # dev-project pair, e.g. santiago-tiap
-     IdentityFile ~/.ssh/id_ed25519    # or the path to the developer's SSH key
+     User <dev>-<project>
+     IdentityFile ~/.ssh/id_ed25519
+     StrictHostKeyChecking accept-new
+
+   Host <dev>-<project>
+     HostName dev-<project>-<dev>
+     Port 22
+     User dev
+     ProxyJump <dev>-<project>-gw
+     IdentityFile ~/.ssh/id_ed25519
      StrictHostKeyChecking accept-new
    ```
 
