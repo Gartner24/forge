@@ -256,8 +256,21 @@ fn key_allowed_for_dev(path: &Path, offered: &PublicKey) -> Result<bool> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        // Parse the authorized key line into a PublicKey (OpenSSH authorized_keys format).
-        if let Ok(pk) = parse_public_key_base64(line) {
+
+        // authorized_keys format: "type base64 [comment]".
+        // We only care about the type + base64 fields for matching, ignore any trailing comment.
+        let mut parts = line.split_whitespace();
+        let first = match parts.next() {
+            Some(s) => s,
+            None => continue,
+        };
+        let enc = if let Some(second) = parts.next() {
+            format!("{} {}", first, second)
+        } else {
+            first.to_string()
+        };
+
+        if let Ok(pk) = parse_public_key_base64(&enc) {
             if &pk == offered {
                 return Ok(true);
             }
