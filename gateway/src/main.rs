@@ -5,7 +5,7 @@ use std::process::Command;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use russh::keys::{load_secret_key, parse_public_key_base64, PrivateKey, PublicKey};
+use russh::keys::{load_secret_key, parse_public_key_base64, HashAlg, PrivateKey, PublicKey};
 use russh::server::{Auth, Handler, Server};
 use russh::MethodSet;
 use serde::Deserialize;
@@ -250,6 +250,7 @@ fn key_allowed_for_dev(path: &Path, offered: &PublicKey) -> Result<bool> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(e.into()),
     };
+    let offered_fp = offered.fingerprint(HashAlg::default()).to_string();
 
     for line in data.lines() {
         let line = line.trim();
@@ -270,12 +271,31 @@ fn key_allowed_for_dev(path: &Path, offered: &PublicKey) -> Result<bool> {
         };
 
         if let Ok(pk) = parse_public_key_base64(base64) {
+            let parsed_fp = pk.fingerprint(HashAlg::default()).to_string();
             // Compare only cryptographic key material. PublicKey equality in the
             // underlying ssh-key crate also includes comment metadata, which may
             // differ between parsed authorized_keys entries and offered client keys.
             if pk.key_data() == offered.key_data() {
+                info!(
+                    "publickey match in {} (offered_fp={}, parsed_fp={})",
+                    path.display(),
+                    offered_fp,
+                    parsed_fp
+                );
                 return Ok(true);
             }
+            warn!(
+                "publickey mismatch in {} (offered_fp={}, parsed_fp={})",
+                path.display(),
+                offered_fp,
+                parsed_fp
+            );
+        } else {
+            warn!(
+                "failed to parse authorized_keys line in {} (base64 starts with '{}...')",
+                path.display(),
+                &base64.chars().take(16).collect::<String>()
+            );
         }
     }
 
