@@ -1,6 +1,3 @@
-## `docs/07-devctl.md`
-
-```md
 # devctl (admin CLI)
 
 This document describes the admin CLI responsibilities, commands, expected prompts, and generated artifacts.
@@ -16,28 +13,11 @@ It must:
 - generate proxy vhost configs for dev domains (from templates)
 - trigger safe proxy reloads (after validation)
 
-## Core commands
+## Core commands (current implementation)
 
-- `devctl add-project`
 - `devctl add-dev`
 - `devctl list-devs`
-- `devctl grant <dev> <project>`
-- `devctl revoke <dev> <project>`
-- `devctl disable-dev <dev>`
-- `devctl delete-dev <dev> <project>`
-
-## add-project
-
-Inputs:
-- project id (e.g. `hemis`)
-- repository URL
-- stack type (node/python/mixed)
-- default branch
-- dev ports (frontend/backend)
-- optional startup commands
-
-Output:
-- updates `registry/projects.json`
+- `devctl delete-dev`
 
 ## add-dev (provision)
 
@@ -45,53 +25,114 @@ Prompts:
 - developer id (e.g. `santiago`)
 - developer public key (paste or file)
 - select project (1..n)
-- optional: bootstrap clone (yes/no)
-- optional: resource overrides (cpu/memory)
+
+Flags:
+- `--recreate`:
+  - Recreate the selected `(developer, project)` environment from scratch.
+  - Uses the same cleanup logic as `delete-dev` to stop/remove the container, vhost, keys, and sshd config, and **purges the workspace directory** for that `(dev, project)` before re-provisioning.
+- `--use-deploy-key`:
+  - Use a per-dev+project **read-only deploy key** to bootstrap the repo over SSH.
+  - See `docs/13-github-deploy-keys.md` for GitHub integration steps.
 
 Generates:
 - dev container name: `dev-<project>-<dev>`
 - workspace path:
-  - host: `/opt/data/dev_workspaces/<project>/<dev>/` (if bind mount)
+  - host: `/opt/data/dev_workspaces/<project>/<dev>/`
   - container: `/workspace/<project>`
 - dev hostname: `<dev>-<project>.dev.domain.com`
 - proxy vhost config written to proxy live directory:
   - `/opt/infra/proxy/conf.d/active/dev/<dev>-<project>.conf` (or equivalent)
 - registry updates:
   - `devs.json` developer record and access mapping
-- key storage:
-  - `gateway/authorized_keys/<dev>.pub` (or structured per dev)
+
+Repo bootstrap:
+- If the selected project has a `repo` configured in `registry/projects.json`:
+  - `devctl` starts the container and attempts to clone the repo into `/workspace/<project>` inside the container.
+  - The workspace is only wiped when there is **no `.git` directory** present in `/workspace/<project>`.
+- Public repos (default):
+  - Cloned using the HTTPS URL from `projects.json`.
+- Private repos with deploy keys:
+  - When `--use-deploy-key` is passed:
+    - `devctl` generates or reuses a per-dev+project deploy keypair under:
+      - `/opt/data/dev_workspaces/_deploy_keys/<project>/<dev>/id_ed25519(.pub)`
+    - The key directory is mounted read-only into the container at:
+      - `/home/dev/.ssh/forge_deploy`
+    - `devctl` uses `GIT_SSH_COMMAND` with `/home/dev/.ssh/forge_deploy/id_ed25519` to perform an SSH `git clone`.
+    - For GitHub HTTPS repos, the URL is converted to an SSH URL (`git@github.com:owner/repo.git`) automatically.
+- Non-fatal behavior:
+  - If cloning fails (auth, network, missing deploy key on Git host, etc.):
+    - The environment is still considered provisioned (container, workspace, vhost, `devs.json`).
+    - `devctl` prints stdout/stderr from the clone command and a brief \"next steps\" message.
+    - Developers or admins can then fix credentials and run `git clone` / `git pull` manually from inside the container.
 
 Outputs to admin:
 - DNS checklist (if wildcard not used)
-- SSH config snippet for ProxyJump
+- SSH config snippet for ProxyJump / Remote-SSH
 - verification commands:
   - container running
   - ssh connection
   - nginx validation/reload status
 
-## grant / revoke
+## list-devs
 
-- grant adds project access and provisions container if needed
-- revoke removes project access and optionally stops/removes container
+Lists developers and the projects they are currently associated with, as recorded in `registry/devs.json`:
 
-## disable-dev
+- Format: `<dev-id>: <project1>, <project2>, ...`
 
-- disables developer key at gateway mapping level
-- does not necessarily delete workspaces (admin choice)
+## delete-dev
 
-## delete-dev <dev> <project>
+`devctl delete-dev` is the single entrypoint for tearing down dev environments.
 
-Removes:
-- container
-- workspace volume/bind mount (optional archive)
-- proxy vhost config
-- access mapping
-- key files (optional: keep for audit)
+Flags:
+- `--dev <dev>` (required): developer id.
+- `--project <project>`: project id (for per-project delete).
+- `--all-projects`: delete this developer from **all** projects.
+- `--purge`:
+  - With `--project`, delete the workspace directory for this `(dev, project)` after teardown.
+- `--purge-all`:
+  - With `--all-projects`, delete **all** workspace directories for this developer across all projects after teardown.
+
+Per-project delete (soft offboarding):
+
+- Command:
+  - `devctl delete-dev --dev <dev> --project <project> [--purge]`
+- Behavior:
+  - Stops/removes the dev container `dev-<project>-<dev>` (compose down, then `docker rm -f` as fallback).
+  - Removes the dev vhost for `<dev>-<project>.dev.<dev_base_domain>` and reloads nginx after validation.
+  - Removes keys and `sshd_config` for that `(dev, project)` from:
+    - `/opt/data/dev_workspaces/_keys/<project>/<dev>/`
+    - `/opt/data/dev_workspaces/_sshd/<project>/<dev>/`
+  - Updates `registry/devs.json`:
+    - Removes `<project>` from the developer’s `projects` list.
+    - If the developer has **no projects left**, sets `status = "disabled"` but keeps the developer record.
+  - Workspace:
+    - default: preserves `/opt/data/dev_workspaces/<project>/<dev>/`
+    - with `--purge`: deletes `/opt/data/dev_workspaces/<project>/<dev>/`
+
+Global delete (hard offboarding):
+
+- Command:
+  - `devctl delete-dev --dev <dev> --all-projects [--purge-all]`
+- Behavior:
+  - Looks up `<dev>` in `registry/devs.json`; if missing, prints a message and exits successfully.
+  - For each project in the developer’s `projects` list:
+    - Performs the same cleanup as per-project delete.
+    - When run in this global mode, the final result is that the developer record is removed entirely from `devs.json`.
+  - Workspace:
+    - default: preserves all `/opt/data/dev_workspaces/<project>/<dev>/` directories for that developer.
+    - with `--purge-all`: deletes all such workspaces and associated `_keys` / `_sshd` entries.
+
+Argument rules:
+- Exactly **one** of `--project` or `--all-projects` must be provided.
+- `--purge` is only valid with `--project`.
+- `--purge-all` is only valid with `--all-projects`.
 
 ## Safety requirements
 
 - Validate Nginx config before reload:
   - `nginx -t` in proxy container
-- Do not delete workspaces without explicit confirmation flag
-- Keep audit logs immutable and retained beyond workspace deletion
+- Do not delete workspaces without explicit confirmation flags:
+  - `--purge` for per-project deletes
+  - `--purge-all` for global deletes
+- Keep audit logs immutable and retained beyond workspace deletion.
 
