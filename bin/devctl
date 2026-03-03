@@ -210,7 +210,7 @@ def _ssh_repo_url(project: Project) -> str:
     # (optionally with a trailing slash)
     m = re.match(r"^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", repo)
     if m:
-        owner, name, _ = m.groups()
+         owner, name = m.groups()
         return f"git@github.com:{owner}/{name}.git"
 
     return repo
