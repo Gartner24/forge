@@ -23,11 +23,13 @@ Benefits:
 ## Toolchain images
 
 Dev containers are built from a standard base per stack:
-- Node stack: node + npm/yarn/pnpm + build essentials + git + sshd
-- Python stack: python + pip/venv tools + build essentials + git + sshd
+- Node stack: node + npm/yarn/pnpm + build essentials + git + sshd + Docker CLI (`docker`, `docker compose`)
+- Python stack: python + pip/venv tools + build essentials + git + sshd + Docker CLI (`docker`, `docker compose`)
 - Mixed stacks can be handled with a custom image or layered images
 
 All toolchain dependencies are inside the container. The container should not rely on host-installed tooling.
+
+Note: the Docker CLI is available in dev containers, but the Docker daemon is not exposed by default (no Docker socket mount) for security isolation.
 
 ## OpenSSH inside container
 

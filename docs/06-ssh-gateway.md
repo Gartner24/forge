@@ -118,6 +118,7 @@ Sources:
 - `registry/devs.json` is the source of truth for developer identities and access.
 - Public keys are stored under `gateway/authorized_keys/`.
 - Gateway configuration (listen address, host key path, log directory) is defined in `registry/gateway.toml` on the server.
+- The gateway refreshes `devs.json` on each auth attempt, so `devctl add-dev` / access changes apply without restarting the gateway container.
 
 ## Developer key lifecycle
 
