@@ -145,12 +145,36 @@ def _chown(path: Path, uid: int, gid: int) -> None:
     _run(["chown", "-R", f"{uid}:{gid}", str(path)], check=True)
 
 
+def _docker_exec(container: str, args: List[str], user: Optional[str] = None, check: bool = True) -> subprocess.CompletedProcess:
+    cmd = ["docker", "exec"]
+    if user:
+        cmd += ["-u", user]
+    cmd += [container] + args
+    return _run(cmd, check=check)
+
+
 def _docker_compose_up(cwd: Path) -> None:
-    _run(["docker", "compose", "up", "-d"], cwd=cwd, check=True)
+    try:
+        _run(["docker", "compose", "-f", "compose.yml", "up", "-d"], cwd=cwd, check=True)
+    except subprocess.CalledProcessError as e:
+        print("docker compose down failed.")
+        if e.stdout:
+            print("stdout:\n" + e.stdout)
+        if e.stderr:
+            print("stderr:\n" + e.stderr)
 
 
 def _docker_compose_down(cwd: Path) -> None:
-    _run(["docker", "compose", "down"], cwd=cwd, check=True)
+    try:
+        _run(["docker", "compose", "-f", "compose.yml", "down"], cwd=cwd, check=True)
+    except subprocess.CalledProcessError as e:
+        print("docker compose down failed.")
+        if e.stdout:
+            print("stdout:\n" + e.stdout)
+        if e.stderr:
+            print("stderr:\n" + e.stderr)
+
+        raise
 
 
 def _select_project(projects: List[Project]) -> Project:
@@ -281,6 +305,34 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path) -> None:
     print(f"Starting container dev-{project.id}-{dev_id}...")
     _docker_compose_up(workspace)
 
+    container_name = f"dev-{project.id}-{dev_id}"
+    repo = (project.repo or "").strip()
+
+    # Bootstrap clone (non-fatal if it fails)
+    if repo:
+        # Ensure workspace dir exists inside container
+        _docker_exec(container_name, ["bash", "-lc", f"mkdir -p /workspace/{project.id}"], user="root")
+
+        clone_cmd = (
+            f"if [ ! -d /workspace/{project.id}/.git ]; then "
+            f"rm -rf /workspace/{project.id}/*; "
+            f"git clone --branch {project.default_branch} {repo} /workspace/{project.id}; "
+            f"fi"
+        )
+
+        try:
+            _docker_exec(container_name, ["bash", "-lc", clone_cmd], user=cfg.default_dev_user, check=True)
+            print(f"Repo bootstrapped into /workspace/{project.id}")
+        except subprocess.CalledProcessError as e:
+            print("Repo bootstrap clone failed (continuing).")
+            if e.stdout:
+                print("stdout:\n" + e.stdout)
+            if e.stderr:
+                print("stderr:\n" + e.stderr)
+            print("Next step: developer must authenticate to Git (SSH key or gh auth) and clone manually.")
+    else:
+        print("No repo configured for this project in registry/projects.json; skipping clone.")
+
     hostname = _dev_hostname(dev_id, project.id, cfg.dev_base_domain)
 
     nginx_template = tmpl_nginx_path.read_text(encoding="utf-8")
@@ -322,11 +374,14 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path) -> None:
     # Update devs.json
     devs_json = _load_json(devs_path)
     devs = devs_json.get("developers", [])
-    # Find or create developer record
+
     rec = next((x for x in devs if x.get("id") == dev_id), None)
     if rec is None:
-        rec = {"id": dev_id, "projects": []}
+        rec = {"id": dev_id, "status": "active", "projects": []}
         devs.append(rec)
+
+    rec["status"] = "active"
+
     if project.id not in rec["projects"]:
         rec["projects"].append(project.id)
 
@@ -336,6 +391,7 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path) -> None:
     print("\nProvisioned:")
     print(f"  dev id:      {dev_id}")
     print(f"  project:     {project.id}")
+    print(f"  repo:        {project.repo or '-'}")
     print(f"  container:   dev-{project.id}-{dev_id}")
     print(f"  workspace:   {workspace}")
     print(f"  hostname:    {hostname}")
@@ -356,6 +412,66 @@ def cmd_list_devs(root: Path) -> None:
         print(f"- {d.get('id')}: {projects}")
 
 
+def cmd_revoke(cfg: ForgeConfig, root: Path, dev: str, project: str, purge: bool) -> None:
+    dev_id = _slug(dev)
+    project_id = _slug(project)
+
+    ws_root = Path(cfg.dev_workspace_root)
+    workspace = ws_root / project_id / dev_id
+    container_name = f"dev-{project_id}-{dev_id}"
+
+    keys_dir = ws_root / "_keys" / project_id / dev_id
+    sshd_dir = ws_root / "_sshd" / project_id / dev_id
+
+    proxy_dev_dir = Path(cfg.proxy_active_dev_conf_dir)
+    vhost_path = proxy_dev_dir / f"{dev_id}-{project_id}.conf"
+
+    print(f"Revoking {dev_id} from project {project_id}...")
+
+    # Stop/remove container: prefer compose if compose.yml exists, else docker rm
+    compose_file = workspace / "compose.yml"
+    if compose_file.exists():
+        try:
+            _docker_compose_down(workspace)
+        except subprocess.CalledProcessError:
+            _run(["docker", "rm", "-f", container_name], check=False)
+    else:
+        _run(["docker", "rm", "-f", container_name], check=False)
+
+    # Remove proxy vhost + reload
+    if vhost_path.exists():
+        vhost_path.unlink()
+        try:
+            _proxy_validate_reload()
+        except Exception as e:
+            print(f"Warning: proxy reload failed after vhost removal: {e}")
+
+    # Remove keys/sshd configs for this project env
+    if keys_dir.exists():
+        shutil.rmtree(keys_dir)
+    if sshd_dir.exists():
+        shutil.rmtree(sshd_dir)
+
+    # Update devs.json: remove project from dev, but keep dev record always
+    devs_path = root / "registry" / "devs.json"
+    devs_json = _load_json(devs_path)
+    devs = devs_json.get("developers", [])
+    rec = next((x for x in devs if x.get("id") == dev_id), None)
+    if rec:
+        rec["projects"] = [p for p in rec.get("projects", []) if p != project_id]
+        if not rec["projects"]:
+            rec["status"] = "disabled"
+        devs_json["developers"] = devs
+        _write_json(devs_path, devs_json)
+
+    # Purge workspace for this dev+project if requested
+    if purge and workspace.exists():
+        shutil.rmtree(workspace)
+
+    print("Done.")
+
+
+
 def cmd_delete_dev(cfg: ForgeConfig, root: Path, dev: str, project: str, purge: bool) -> None:
     dev_id = _slug(dev)
     project_id = _slug(project)
@@ -363,31 +479,71 @@ def cmd_delete_dev(cfg: ForgeConfig, root: Path, dev: str, project: str, purge: 
     ws_root = Path(cfg.dev_workspace_root)
     workspace = ws_root / project_id / dev_id
 
-    if not workspace.exists():
-        raise FileNotFoundError(f"Workspace not found: {workspace}")
+    container_name = f"dev-{project_id}-{dev_id}"
+
+    keys_dir = ws_root / "_keys" / project_id / dev_id
+    sshd_dir = ws_root / "_sshd" / project_id / dev_id
+
+    proxy_dev_dir = Path(cfg.proxy_active_dev_conf_dir)
+    vhost_path = proxy_dev_dir / f"{dev_id}-{project_id}.conf"
 
     print(f"Stopping dev environment for {dev_id}/{project_id}...")
-    _docker_compose_down(workspace)
 
-    # Update devs.json (remove project from dev)
+    # 1) Try compose down if compose.yml exists; otherwise fall back to docker rm
+    compose_file = workspace / "compose.yml"
+    if compose_file.exists():
+        try:
+            _docker_compose_down(workspace)
+        except subprocess.CalledProcessError:
+            # If compose down fails, fall back to docker rm to ensure cleanup
+            _run(["docker", "rm", "-f", container_name], check=False)
+    else:
+        _run(["docker", "rm", "-f", container_name], check=False)
+
+    # 2) Remove proxy vhost (if present) + reload proxy safely
+    if vhost_path.exists():
+        try:
+            vhost_path.unlink()
+            _proxy_validate_reload()
+            print(f"Removed proxy vhost: {vhost_path}")
+        except Exception as e:
+            print(f"Warning: failed to remove/reload proxy vhost: {e}")
+
+    # 3) Remove keys and sshd config directories for this dev+project
+    if keys_dir.exists():
+        try:
+            shutil.rmtree(keys_dir)
+            print(f"Removed keys dir: {keys_dir}")
+        except Exception as e:
+            print(f"Warning: failed to remove keys dir: {e}")
+
+    if sshd_dir.exists():
+        try:
+            shutil.rmtree(sshd_dir)
+            print(f"Removed sshd dir: {sshd_dir}")
+        except Exception as e:
+            print(f"Warning: failed to remove sshd dir: {e}")
+
+    # 4) Update devs.json (remove project from dev mapping)
     devs_path = root / "registry" / "devs.json"
     devs_json = _load_json(devs_path)
     devs = devs_json.get("developers", [])
     rec = next((x for x in devs if x.get("id") == dev_id), None)
     if rec:
         rec["projects"] = [p for p in rec.get("projects", []) if p != project_id]
-        # keep dev record even if empty (admin choice), or remove if empty:
         if not rec["projects"]:
-            # remove entirely
             devs = [x for x in devs if x.get("id") != dev_id]
         devs_json["developers"] = devs
         _write_json(devs_path, devs_json)
 
+    # 5) Purge workspace only if requested
     if purge:
-        print(f"Purging workspace: {workspace}")
-        shutil.rmtree(workspace)
+        if workspace.exists():
+            shutil.rmtree(workspace)
+            print(f"Purged workspace: {workspace}")
     else:
-        print(f"Workspace preserved: {workspace}")
+        if workspace.exists():
+            print(f"Workspace preserved: {workspace}")
 
     print("Done.")
 
@@ -408,6 +564,11 @@ def main() -> int:
     pdel.add_argument("--project", required=True)
     pdel.add_argument("--purge", action="store_true", help="Delete workspace directory")
 
+    prev = sub.add_parser("revoke")
+    prev.add_argument("--dev", required=True)
+    prev.add_argument("--project", required=True)
+    prev.add_argument("--purge", action="store_true", help="Delete workspace directory for this dev+project")
+
     args = parser.parse_args()
 
     if args.cmd == "add-dev":
@@ -418,6 +579,9 @@ def main() -> int:
         return 0
     if args.cmd == "delete-dev":
         cmd_delete_dev(cfg, root, args.dev, args.project, args.purge)
+        return 0
+    if args.cmd == "revoke":
+        cmd_revoke(cfg, root, args.dev, args.project, args.purge)
         return 0
 
     return 1
