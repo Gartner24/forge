@@ -616,7 +616,7 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
     container_name = f"dev-{project.id}-{dev_id}"
     repo = (project.repo or "").strip()
 
-    # Bootstrap clone (non-fatal if it fails)
+        # Bootstrap clone (non-fatal if it fails)
     if repo:
         # Ensure workspace dir exists inside container
         _docker_exec(container_name, ["bash", "-lc", f"mkdir -p /workspace/{project.id}"], user="root")
@@ -625,6 +625,10 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
         project_deploy_dir = _project_deploy_key_dir(cfg, project.id)
         priv_key = project_deploy_dir / "id_ed25519"
         if priv_key.exists():
+            print(
+                f"Using project deploy key at {priv_key} for SSH clone "
+                f"(repo={project.repo or '-'})."
+            )
             ssh_repo = _ssh_repo_url(project)
             ssh_mount_path = f"/home/{cfg.default_dev_user}/.ssh/forge_deploy"
             git_ssh_cmd = (
@@ -638,6 +642,10 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
                 f"fi"
             )
         else:
+            print(
+                f"No project deploy key found at {priv_key}; "
+                f"falling back to HTTPS clone (repo={repo})."
+            )
             clone_cmd = (
                 f"if [ ! -d /workspace/{project.id}/.git ]; then "
                 f"rm -rf /workspace/{project.id}/*; "
