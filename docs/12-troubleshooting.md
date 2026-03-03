@@ -5,6 +5,7 @@ This document provides a checklist for common issues.
 ## VS Code / Cursor cannot connect
 
 Checklist:
+
 - Does the target hostname resolve to the VPS IP?
 - Is the gateway reachable on the SSH port?
 - Is the dev container running?
@@ -12,7 +13,15 @@ Checklist:
 - Is the developer key present and mapped correctly?
 - Is the container reachable from the gateway (network `dev-web`)?
 
+Remote-SSH specific checks:
+
+- Use the final host alias (`<dev>-<project>`) that includes `ProxyJump`.
+- Do not test with direct interactive gateway shell (`ssh <dev>-<project>@ssh.<domain> -p 2224`).
+- Ensure `IdentityFile` points to the right private key on this machine.
+- Set `IdentitiesOnly yes` to avoid accidental wrong-key attempts.
+
 Useful checks:
+
 - `docker ps | grep dev-`
 - `docker exec -it <dev-container> ps aux | grep sshd`
 - `docker network inspect dev-web`
@@ -22,6 +31,22 @@ Useful checks:
 - Confirm the container user exists and has a home directory.
 - Confirm `sshd_config` allows the intended user.
 - Confirm workspace permissions under `/workspace/<project>`.
+
+If you see:
+
+- `channel open failed: administratively prohibited: Rejected`
+  - This is expected when trying to open a shell directly on the gateway.
+  - Fix: connect using the final alias with `ProxyJump` (`ssh <dev>-<project>`).
+
+If you see:
+
+- `Permission denied (publickey)` on gateway hop
+  - Confirm key file in gateway canonical store:
+    - `/opt/infra/forge/gateway/authorized_keys/<dev>.pub`
+  - Validate key file format:
+    - `sudo ssh-keygen -lf /opt/infra/forge/gateway/authorized_keys/<dev>.pub`
+  - Re-register key with:
+    - `sudo devctl gateway-add-key --dev <dev> --pubkey "<full ssh-ed25519 ... line>"`
 
 ## Proxy routes to wrong target
 

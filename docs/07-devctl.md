@@ -61,6 +61,7 @@ SSH key handling:
   - If `/opt/infra/forge/gateway/authorized_keys/<dev>.pub` already contains a key, `add-dev` offers to reuse it and copies it into the new container’s `_keys` directory.
   - If no canonical key exists yet, `add-dev` prompts for a public key, writes it to the gateway file, and then populates `_keys` for that `(dev, project)`.
 - This means you typically paste a developer’s SSH public key **once**; future `add-dev` runs for additional projects can reuse the same key.
+- `devctl` validates the provided public key and rejects malformed/truncated values (for example, placeholder `AAAA...` input).
 
 Flags:
 - `--recreate`:
@@ -170,6 +171,14 @@ Lists developers and the projects they are currently associated with, as recorde
 - Typical use:
   - Used automatically by `devctl add-dev` to keep the gateway’s canonical key store up to date.
   - Can also be called manually to add extra keys or fix mistakes without reprovisioning containers; existing containers for that developer will be updated.
+
+Remote-SSH quick usage:
+
+- Terminal check should use the final host alias (not direct gateway shell):
+  - `ssh <dev>-<project>`
+- In Cursor / VS Code:
+  - `Remote-SSH: Connect to Host...` -> select `<dev>-<project>`
+  - open `/workspace/<project>`.
 
 ## delete-dev
 
