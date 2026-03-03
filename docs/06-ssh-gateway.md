@@ -32,6 +32,29 @@ Sources:
 - Public keys are stored under `gateway/authorized_keys/`.
 - Gateway configuration (listen address, host key path, log directory) is defined in `registry/gateway.toml` on the server.
 
+## Developer key lifecycle
+
+Canonical store:
+
+- For each developer id `<dev>`, the canonical SSH public keys live in:
+  - `/opt/infra/forge/gateway/authorized_keys/<dev>.pub`
+- Each non-empty, non-comment line in that file is treated as one allowed key for that developer.
+
+How keys are written:
+
+- `devctl add-dev`:
+  - Prompts for (or reuses) the developer’s SSH public key.
+  - Ensures the key is present in `/opt/infra/forge/gateway/authorized_keys/<dev>.pub`.
+  - Writes the same key into the container’s `_keys` directory:
+    - `/opt/data/dev_workspaces/_keys/<project>/<dev>/dev`
+    - so the target container’s `sshd` accepts the key once the gateway forwards the connection.
+- `devctl gateway-add-key`:
+  - Adds additional keys for an existing developer (e.g. second laptop).
+  - Appends them to the canonical gateway file.
+  - Updates `_keys` for all projects that developer currently has in `registry/devs.json`.
+
+Containers never read `gateway/authorized_keys` directly; `devctl` is responsible for keeping per-container `_keys` in sync with the gateway’s canonical view.
+
 ## Routing model
 
 Recommended:

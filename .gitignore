@@ -7,6 +7,9 @@ Thumbs.db
 .idea/
 *.iml
 
+# ---- python ----
+/bin/__pycache__
+
 # ---- Rust ----
 # Root Cargo targets
 /target/

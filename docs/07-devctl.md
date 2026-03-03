@@ -55,6 +55,13 @@ Prompts:
 - developer public key (paste or file)
 - select project (1..n)
 
+SSH key handling:
+
+- The Rust SSH gateway’s `authorized_keys` directory is treated as the **canonical** store for developer SSH public keys:
+  - If `/opt/infra/forge/gateway/authorized_keys/<dev>.pub` already contains a key, `add-dev` offers to reuse it and copies it into the new container’s `_keys` directory.
+  - If no canonical key exists yet, `add-dev` prompts for a public key, writes it to the gateway file, and then populates `_keys` for that `(dev, project)`.
+- This means you typically paste a developer’s SSH public key **once**; future `add-dev` runs for additional projects can reuse the same key.
+
 Flags:
 - `--recreate`:
   - Recreate the selected `(developer, project)` environment from scratch.
@@ -137,10 +144,13 @@ Lists developers and the projects they are currently associated with, as recorde
   - Reads the developer SSH public key:
     - from `--pubkey` if provided (either a `.pub` file path or an inline `ssh-ed25519 ...` / `ssh-rsa ...` line), or
     - interactively from stdin if `--pubkey` is omitted.
-  - Appends the key to `/opt/infra/forge/gateway/authorized_keys/<dev>.pub`, creating the directory/file as needed.
+  - Appends the key to `/opt/infra/forge/gateway/authorized_keys/<dev>.pub`, creating the directory/file as needed (idempotent for identical lines).
+  - For any projects currently associated with `<dev>` in `registry/devs.json`, also writes the same key into:
+    - `/opt/data/dev_workspaces/_keys/<project>/<dev>/dev`
+    - so existing dev containers accept the new key without reprovisioning.
 - Typical use:
-  - Called automatically from `devctl add-dev` when the admin chooses to \"also register this developer SSH key for the Rust SSH gateway\".
-  - Can also be called manually to add extra keys or fix mistakes without reprovisioning containers.
+  - Used automatically by `devctl add-dev` to keep the gateway’s canonical key store up to date.
+  - Can also be called manually to add extra keys or fix mistakes without reprovisioning containers; existing containers for that developer will be updated.
 
 ## delete-dev
 

@@ -121,18 +121,59 @@ def _read_pubkey_from_input(pubkey_arg: Optional[str]) -> str:
     return key
 
 
+def _gateway_authorized_keys_dir() -> Path:
+    return Path("/opt/infra/forge/gateway/authorized_keys")
+
+
+def _gateway_authorized_key_path(dev_id: str) -> Path:
+    return _gateway_authorized_keys_dir() / f"{dev_id}.pub"
+
+
+def _load_first_pubkey_line(path: Path) -> str:
+    """
+    Return the first non-empty, non-comment line from an authorized_keys-style file.
+    """
+    try:
+        data = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+    for line in data.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        return line
+    return ""
+
+
 def _append_gateway_authorized_key(dev_id: str, pubkey: str) -> None:
     """
-    Append a developer SSH public key to the Rust gateway's authorized_keys store.
+    Ensure a developer SSH public key is present in the Rust gateway's authorized_keys store.
 
     Keys are stored under:
       /opt/infra/forge/gateway/authorized_keys/<dev_id>.pub
+
+    This helper is idempotent: it will not duplicate an existing identical line.
     """
-    gateway_dir = Path("/opt/infra/forge/gateway/authorized_keys")
+    gateway_dir = _gateway_authorized_keys_dir()
     gateway_dir.mkdir(parents=True, exist_ok=True)
-    path = gateway_dir / f"{dev_id}.pub"
+    path = _gateway_authorized_key_path(dev_id)
+    new_line = pubkey.strip()
+
+    existing = ""
+    if path.exists():
+        try:
+            existing = path.read_text(encoding="utf-8")
+        except OSError:
+            existing = ""
+
+    if existing:
+        for line in existing.splitlines():
+            if line.strip() == new_line:
+                return
+
     with path.open("a", encoding="utf-8") as f:
-        f.write(pubkey.strip() + "\n")
+        f.write(new_line + "\n")
 
 
 def _render_template(template_text: str, variables: Dict[str, str]) -> str:
@@ -579,15 +620,16 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
     sshd_dir = ws_root / "_sshd" / project.id / dev_id
     sshd_cfg_file = sshd_dir / "sshd_config"
 
-    # Developer SSH key UX: allow reusing an existing key for this dev+project so
-    # admins don't have to paste it on every re-run.
+    # Developer SSH key UX and canonical storage:
+    # - The Rust gateway's authorized_keys store is the canonical per-dev key source.
+    # - Per-(dev, project) container `_keys` entries are derived from that canonical key.
+    gateway_key_path = _gateway_authorized_key_path(dev_id)
+    canonical_key = _load_first_pubkey_line(gateway_key_path)
+
+    # For legacy environments where only container `_keys` exist, fall back and
+    # migrate them into the canonical gateway store on first use.
     existing_key_path = keys_dir / cfg.default_dev_user
-    existing_key: str = ""
-    if existing_key_path.exists():
-        try:
-            existing_key = existing_key_path.read_text(encoding="utf-8").strip()
-        except OSError:
-            existing_key = ""
+    existing_key = _load_first_pubkey_line(existing_key_path)
 
     print("\nDeveloper SSH access")
     print("--------------------")
@@ -598,7 +640,18 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
     print("  3) Copy the full line starting with \"ssh-ed25519 ...\"")
     print("You can now either paste that public key here, or provide a path to a .pub file.")
 
-    if existing_key:
+    if canonical_key:
+        print("\nA gateway SSH public key is already registered for this developer.")
+        reuse = input(
+            "Reuse the existing gateway SSH public key for this dev container? [Y/n]: "
+        ).strip().lower()
+        if reuse in ("", "y", "yes"):
+            pubkey = canonical_key
+        else:
+            pubkey = _read_pubkey_from_input(
+                input("Developer SSH public key (path or paste inline; leave empty to paste): ").strip() or None
+            )
+    elif existing_key:
         print("\nAn SSH public key is already configured for this dev+project.")
         reuse = input("Reuse the existing developer SSH public key? [Y/n]: ").strip().lower()
         if reuse in ("", "y", "yes"):
@@ -612,20 +665,12 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
             input("Developer SSH public key (path or paste inline; leave empty to paste): ").strip() or None
         )
 
-    # Optional: also register this key for the Rust SSH gateway so the developer
-    # can connect via ssh.dev.<domain>:2224 using their normal SSH key.
+    # Always ensure the key is registered with the Rust SSH gateway (canonical store).
     try:
-        gw_choice = input(
-            "Also register this developer SSH key for the Rust SSH gateway? [Y/n]: "
-        ).strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        gw_choice = "n"
-    if gw_choice in ("", "y", "yes"):
-        try:
-            _append_gateway_authorized_key(dev_id, pubkey)
-            print("Registered developer SSH key for the Rust gateway.")
-        except Exception as e:
-            print(f"Warning: failed to register key for gateway: {e}")
+        _append_gateway_authorized_key(dev_id, pubkey)
+        print("Registered developer SSH key for the Rust gateway.")
+    except Exception as e:
+        print(f"Warning: failed to register key for gateway: {e}")
 
     # Optional destructive recreate-from-zero path: fully tear down any existing
     # environment for this dev+project, including the workspace, before
@@ -828,7 +873,7 @@ def cmd_list_devs(root: Path) -> None:
         print(f"- {d.get('id')}: {projects}")
 
 
-def cmd_gateway_add_key(root: Path, dev: str, pubkey_arg: Optional[str]) -> int:
+def cmd_gateway_add_key(cfg: ForgeConfig, root: Path, dev: str, pubkey_arg: Optional[str]) -> int:
     """
     Manually register a developer SSH public key for the Rust SSH gateway.
 
@@ -837,20 +882,38 @@ def cmd_gateway_add_key(root: Path, dev: str, pubkey_arg: Optional[str]) -> int:
     """
     dev_id = _slug(dev)
 
-    # Best-effort validation against devs.json so typos are caught early.
+    # Best-effort validation against devs.json so typos are caught early, and so
+    # we can also propagate the key into existing dev containers for this user.
     devs_path = root / "registry" / "devs.json"
+    projects: List[str] = []
     try:
         devs_json = _load_json(devs_path)
         devs = devs_json.get("developers", [])
         rec = next((x for x in devs if x.get("id") == dev_id), None)
         if rec is None:
             print(f"Warning: developer {dev_id} not found in devs.json; adding gateway key anyway.")
+        else:
+            projects = list(rec.get("projects", []))
     except FileNotFoundError:
         print(f"Warning: devs.json not found at {devs_path}; adding gateway key without registry validation.")
 
     pubkey = _read_pubkey_from_input(pubkey_arg)
     _append_gateway_authorized_key(dev_id, pubkey)
+
+    # Also propagate the key into each dev container's authorized_keys file so
+    # sshd inside the containers accepts the same key.
+    ws_root = Path(cfg.dev_workspace_root)
+    for project_id in projects:
+        keys_dir = ws_root / "_keys" / project_id / dev_id
+        keys_dir.mkdir(parents=True, exist_ok=True)
+        key_path = keys_dir / cfg.default_dev_user
+        key_path.write_text(pubkey.strip() + "\n", encoding="utf-8")
+        os.chmod(keys_dir, 0o755)
+        os.chmod(key_path, 0o644)
+
     print(f"Added gateway authorized key for dev '{dev_id}'.")
+    if projects:
+        print(f"Updated container authorized_keys for projects: {', '.join(projects)}.")
     return 0
 
 
@@ -996,6 +1059,7 @@ def main() -> int:
         return 0
     if args.cmd == "gateway-add-key":
         return cmd_gateway_add_key(
+            cfg,
             root,
             dev=args.dev,
             pubkey_arg=getattr(args, "pubkey", None),
