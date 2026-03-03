@@ -145,9 +145,14 @@ def _chown(path: Path, uid: int, gid: int) -> None:
     _run(["chown", "-R", f"{uid}:{gid}", str(path)], check=True)
 
 
-def _deploy_key_dir(cfg: ForgeConfig, project_id: str, dev_id: str) -> Path:
+def _project_deploy_key_dir(cfg: ForgeConfig, project_id: str) -> Path:
+    """
+    Directory for a project's shared deploy keypair.
+
+    One keypair per project, reused for all developers on that project.
+    """
     ws_root = Path(cfg.dev_workspace_root)
-    return ws_root / "_deploy_keys" / project_id / dev_id
+    return ws_root / "_deploy_keys" / project_id
 
 
 def _ensure_deploy_keypair(deploy_dir: Path, label: str) -> Path:
@@ -205,6 +210,115 @@ def _ssh_repo_url(project: Project) -> str:
         return f"git@github.com:{owner}/{name}.git"
 
     return repo
+
+
+def cmd_add_project(cfg: ForgeConfig, root: Path) -> int:
+    projects_path = root / "registry" / "projects.json"
+
+    try:
+        projects_json = _load_json(projects_path)
+    except FileNotFoundError:
+        projects_json = {"version": 1, "projects": []}
+
+    projects = projects_json.get("projects", [])
+
+    # Basic prompts with sensible defaults
+    raw_id = input("Project id (e.g. hemis): ").strip()
+    project_id = _slug(raw_id)
+
+    existing = next((p for p in projects if str(p.get("id")) == project_id), None)
+
+    def _prompt(default: str, label: str) -> str:
+        val = input(f"{label} [{default}]: ").strip()
+        return val or default
+
+    default_repo = str(existing.get("repo", "")) if existing else ""
+    default_branch = str(existing.get("default_branch", "main")) if existing else "main"
+    default_stack = str(existing.get("stack", "node")) if existing else "node"
+
+    preview = (existing or {}).get("preview", {}) or {}
+    resources = (existing or {}).get("resources", {}) or {}
+
+    enabled_default = "y" if bool(preview.get("enabled", True)) else "n"
+    enabled_input = input(f"Enable HTTP preview? [y/N] (current: {enabled_default}): ").strip().lower()
+    preview_enabled = enabled_input == "y" or (enabled_input == "" and enabled_default == "y")
+
+    fe_port_default = str(preview.get("frontend_port", 5173))
+    be_port_default = str(preview.get("backend_port", 0))
+    fe_path_default = str(preview.get("frontend_path", "/"))
+    be_prefix_default = str(preview.get("backend_path_prefix", "/api"))
+
+    repo = _prompt(default_repo, "Repository URL (HTTPS or SSH)")
+    default_branch = _prompt(default_branch, "Default branch")
+    stack = _prompt(default_stack, "Stack (node/python/mixed)")
+
+    if preview_enabled:
+        frontend_port = int(_prompt(fe_port_default, "Frontend dev port"))
+        backend_port = int(_prompt(be_port_default, "Backend dev port (0 to disable)"))
+    else:
+        frontend_port = int(fe_port_default)
+        backend_port = int(be_port_default)
+
+    frontend_path = _prompt(fe_path_default, "Frontend path")
+    backend_prefix = _prompt(be_prefix_default, "Backend path prefix")
+
+    cpus_default = str(resources.get("cpus", "1.0"))
+    mem_default = str(resources.get("memory", "2g"))
+    cpus = _prompt(cpus_default, "CPU limit (e.g. 1.0)")
+    memory = _prompt(mem_default, "Memory limit (e.g. 2g)")
+
+    new_entry = {
+        "id": project_id,
+        "repo": repo,
+        "default_branch": default_branch,
+        "stack": stack,
+        "preview": {
+            "enabled": preview_enabled,
+            "frontend_port": frontend_port,
+            "backend_port": backend_port,
+            "frontend_path": frontend_path,
+            "backend_path_prefix": backend_prefix,
+        },
+        "resources": {
+            "cpus": cpus,
+            "memory": memory,
+        },
+    }
+
+    if existing:
+        for i, p in enumerate(projects):
+            if str(p.get("id")) == project_id:
+                projects[i] = new_entry
+                break
+    else:
+        projects.append(new_entry)
+
+    projects_json["projects"] = projects
+    _write_json(projects_path, projects_json)
+
+    # Optional: generate a project-level deploy keypair
+    choice = input(
+        "Generate a GitHub deploy key for this project (read-only, for bootstrap clones)? [y/N]: "
+    ).strip().lower()
+    if choice == "y":
+        deploy_dir = _project_deploy_key_dir(cfg, project_id)
+        priv_key = _ensure_deploy_keypair(deploy_dir, label=f"forge-project-{project_id}")
+        pub_key_path = priv_key.with_suffix(".pub")
+        pub_key = pub_key_path.read_text(encoding="utf-8").strip() if pub_key_path.exists() else ""
+
+        print("\nProject deploy key generated.")
+        print(f"  Project id: {project_id}")
+        print(f"  Repo:       {repo or '-'}")
+        print(f"  Private key: {priv_key}")
+        if pub_key:
+            print("\nAdd this PUBLIC key as a read-only Deploy key on GitHub for this repo:")
+            print(pub_key)
+            print(
+                "\nGitHub: go to the repo → Settings → Deploy keys → Add deploy key "
+                "(leave \"Allow write access\" unchecked)."
+            )
+
+    return 0
 
 
 def _docker_exec(container: str, args: List[str], user: Optional[str] = None, check: bool = True) -> subprocess.CompletedProcess:
@@ -291,7 +405,7 @@ def _dev_hostname(dev: str, project: str, dev_base_domain: str) -> str:
 
 
 def _compose_vars(cfg: ForgeConfig, dev: str, project: Project, workspace_host: Path, keys_dir: Path, sshd_cfg_file: Path) -> Dict[str, str]:
-    deploy_dir = _deploy_key_dir(cfg, project.id, dev)
+    deploy_dir = _project_deploy_key_dir(cfg, project.id)
     return {
         "DEV_IMAGE": project.dev_image,
         "PROJECT": project.id,
@@ -421,7 +535,7 @@ def _cleanup_dev_project(
         print(f"Workspace preserved: {workspace}")
 
 
-def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False, use_deploy_key: bool = False) -> None:
+def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
     projects_path = root / "registry" / "projects.json"
     devs_path = root / "registry" / "devs.json"
     tmpl_compose_path = root / "templates" / "dev-compose.yml.tmpl"
@@ -453,7 +567,6 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False, use_deploy
     keys_dir = ws_root / "_keys" / project.id / dev_id
     sshd_dir = ws_root / "_sshd" / project.id / dev_id
     sshd_cfg_file = sshd_dir / "sshd_config"
-    deploy_dir = _deploy_key_dir(cfg, project.id, dev_id)
 
     # Optional destructive recreate-from-zero path: fully tear down any existing
     # environment for this dev+project, including the workspace, before
@@ -508,9 +621,10 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False, use_deploy
         # Ensure workspace dir exists inside container
         _docker_exec(container_name, ["bash", "-lc", f"mkdir -p /workspace/{project.id}"], user="root")
 
-        if use_deploy_key:
-            # Ensure a per-dev+project deploy keypair exists on the host.
-            priv_key = _ensure_deploy_keypair(deploy_dir, label=f"forge-{project.id}-{dev_id}")
+        # Prefer project-level deploy key if it exists; otherwise fall back to HTTPS.
+        project_deploy_dir = _project_deploy_key_dir(cfg, project.id)
+        priv_key = project_deploy_dir / "id_ed25519"
+        if priv_key.exists():
             ssh_repo = _ssh_repo_url(project)
             ssh_mount_path = f"/home/{cfg.default_dev_user}/.ssh/forge_deploy"
             git_ssh_cmd = (
@@ -523,8 +637,6 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False, use_deploy
                 f"{git_ssh_cmd} git clone --branch {project.default_branch} {ssh_repo} /workspace/{project.id}; "
                 f"fi"
             )
-            # Avoid unused-variable warning for priv_key; path is used via mount.
-            _ = priv_key
         else:
             clone_cmd = (
                 f"if [ ! -d /workspace/{project.id}/.git ]; then "
@@ -721,16 +833,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="devctl")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
+    pproj = sub.add_parser("add-project")
+
     padd = sub.add_parser("add-dev")
     padd.add_argument(
         "--recreate",
         action="store_true",
         help="Recreate dev environment from scratch for the selected dev+project (purges existing workspace).",
-    )
-    padd.add_argument(
-        "--use-deploy-key",
-        action="store_true",
-        help="Use a per-dev deploy key for repo bootstrap via SSH (read-only).",
     )
 
     sub.add_parser("list-devs")
@@ -756,8 +865,10 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    if args.cmd == "add-project":
+        return cmd_add_project(cfg, root)
     if args.cmd == "add-dev":
-        cmd_add_dev(cfg, root, recreate=args.recreate, use_deploy_key=args.use_deploy_key)
+        cmd_add_dev(cfg, root, recreate=args.recreate)
         return 0
     if args.cmd == "list-devs":
         cmd_list_devs(root)
