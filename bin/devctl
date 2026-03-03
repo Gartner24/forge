@@ -774,7 +774,18 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
     print(f"  proxy vhost: {vhost_path}")
     print("\nNext:")
     print("  - DNS: ensure *.dev.qyvos.com points to the VPS IP.")
-    print("  - SSH: Rust gateway will be added next (so no container ports are exposed).")
+    print("  - SSH: use the SSH config snippet below on the developer's machine for Remote-SSH.")
+
+    host_alias = f"{dev_id}-{project.id}"
+    print("\nSSH config snippet for Cursor / VS Code")
+    print("--------------------------------------")
+    print("Copy this into the developer's local ~/.ssh/config file:")
+    print()
+    print(f"Host {host_alias}")
+    print(f"  HostName {hostname}")
+    print("  User dev")
+    print("  IdentityFile ~/.ssh/id_ed25519    # or the path to the developer's SSH key")
+    print("  StrictHostKeyChecking accept-new")
 
 def cmd_list_devs(root: Path) -> None:
     devs_path = root / "registry" / "devs.json"
