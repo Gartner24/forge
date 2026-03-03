@@ -5,6 +5,7 @@ This guide explains **why** and **how** to use deploy keys with Forge and GitHub
 Why deploy keys?
 - When a repo is **private**, Forge still needs a way to `git clone` it into each developer’s container during `devctl add-dev`.
 - A GitHub **Deploy key** is a repo-scoped SSH key that lets Forge clone that repo **read-only**, without storing a personal token or GitHub password on the server.
+- Deploy keys are used **only for the initial bootstrap clone** into `/workspace/<project>`; Forge never uses them for `git push`.
 - After bootstrap, each developer still uses **their own GitHub SSH key** and permissions to push commits from inside the container.
 
 This guide shows how to:
