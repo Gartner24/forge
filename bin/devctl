@@ -145,6 +145,68 @@ def _chown(path: Path, uid: int, gid: int) -> None:
     _run(["chown", "-R", f"{uid}:{gid}", str(path)], check=True)
 
 
+def _deploy_key_dir(cfg: ForgeConfig, project_id: str, dev_id: str) -> Path:
+    ws_root = Path(cfg.dev_workspace_root)
+    return ws_root / "_deploy_keys" / project_id / dev_id
+
+
+def _ensure_deploy_keypair(deploy_dir: Path, label: str) -> Path:
+    """
+    Ensure an ed25519 deploy keypair exists under deploy_dir.
+
+    Returns the path to the private key.
+    """
+    priv_key = deploy_dir / "id_ed25519"
+    pub_key = deploy_dir / "id_ed25519.pub"
+
+    if priv_key.exists():
+        return priv_key
+
+    deploy_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(deploy_dir, 0o700)
+
+    _run(
+        [
+            "ssh-keygen",
+            "-t",
+            "ed25519",
+            "-N",
+            "",
+            "-C",
+            label,
+            "-f",
+            str(priv_key),
+        ],
+        check=True,
+    )
+
+    os.chmod(priv_key, 0o600)
+    if pub_key.exists():
+        os.chmod(pub_key, 0o644)
+
+    return priv_key
+
+
+def _ssh_repo_url(project: Project) -> str:
+    """
+    Derive an SSH URL for the project repo when possible.
+
+    - If repo is already an SSH URL, return as-is.
+    - If repo is a GitHub HTTPS URL, convert to git@github.com:owner/name.git.
+    - Otherwise, return the original value.
+    """
+    repo = (project.repo or "").strip()
+    if repo.startswith("git@") or repo.startswith("ssh://"):
+        return repo
+
+    m = re.match(r"^https://github\\.com/([^/]+)/([^/]+?)(\\.git)?$", repo)
+    if m:
+        owner, name, _ = m.groups()
+        return f"git@github.com:{owner}/{name}.git"
+
+    return repo
+
+
 def _docker_exec(container: str, args: List[str], user: Optional[str] = None, check: bool = True) -> subprocess.CompletedProcess:
     cmd = ["docker", "exec"]
     if user:
@@ -229,6 +291,7 @@ def _dev_hostname(dev: str, project: str, dev_base_domain: str) -> str:
 
 
 def _compose_vars(cfg: ForgeConfig, dev: str, project: Project, workspace_host: Path, keys_dir: Path, sshd_cfg_file: Path) -> Dict[str, str]:
+    deploy_dir = _deploy_key_dir(cfg, project.id, dev)
     return {
         "DEV_IMAGE": project.dev_image,
         "PROJECT": project.id,
@@ -241,6 +304,7 @@ def _compose_vars(cfg: ForgeConfig, dev: str, project: Project, workspace_host: 
         "BACKEND_PORT": str(project.backend_port),
         "CPUS": project.cpus,
         "MEMORY": project.memory,
+        "DEPLOY_KEY_HOST": str(deploy_dir),
     }
 
 
@@ -357,7 +421,7 @@ def _cleanup_dev_project(
         print(f"Workspace preserved: {workspace}")
 
 
-def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
+def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False, use_deploy_key: bool = False) -> None:
     projects_path = root / "registry" / "projects.json"
     devs_path = root / "registry" / "devs.json"
     tmpl_compose_path = root / "templates" / "dev-compose.yml.tmpl"
@@ -377,6 +441,7 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
     keys_dir = ws_root / "_keys" / project.id / dev_id
     sshd_dir = ws_root / "_sshd" / project.id / dev_id
     sshd_cfg_file = sshd_dir / "sshd_config"
+    deploy_dir = _deploy_key_dir(cfg, project.id, dev_id)
 
     # Optional destructive recreate-from-zero path: fully tear down any existing
     # environment for this dev+project, including the workspace, before
@@ -431,12 +496,30 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
         # Ensure workspace dir exists inside container
         _docker_exec(container_name, ["bash", "-lc", f"mkdir -p /workspace/{project.id}"], user="root")
 
-        clone_cmd = (
-            f"if [ ! -d /workspace/{project.id}/.git ]; then "
-            f"rm -rf /workspace/{project.id}/*; "
-            f"git clone --branch {project.default_branch} {repo} /workspace/{project.id}; "
-            f"fi"
-        )
+        if use_deploy_key:
+            # Ensure a per-dev+project deploy keypair exists on the host.
+            priv_key = _ensure_deploy_keypair(deploy_dir, label=f"forge-{project.id}-{dev_id}")
+            ssh_repo = _ssh_repo_url(project)
+            ssh_mount_path = f"/home/{cfg.default_dev_user}/.ssh/forge_deploy"
+            git_ssh_cmd = (
+                f"GIT_SSH_COMMAND='ssh -i {ssh_mount_path}/id_ed25519 "
+                "-o IdentitiesOnly=yes -o StrictHostChecking=accept-new'"
+            )
+            clone_cmd = (
+                f"if [ ! -d /workspace/{project.id}/.git ]; then "
+                f"rm -rf /workspace/{project.id}/*; "
+                f"{git_ssh_cmd} git clone --branch {project.default_branch} {ssh_repo} /workspace/{project.id}; "
+                f"fi"
+            )
+            # Avoid unused-variable warning for priv_key; path is used via mount.
+            _ = priv_key
+        else:
+            clone_cmd = (
+                f"if [ ! -d /workspace/{project.id}/.git ]; then "
+                f"rm -rf /workspace/{project.id}/*; "
+                f"git clone --branch {project.default_branch} {repo} /workspace/{project.id}; "
+                f"fi"
+            )
 
         try:
             _docker_exec(container_name, ["bash", "-lc", clone_cmd], user=cfg.default_dev_user, check=True)
@@ -632,6 +715,11 @@ def main() -> int:
         action="store_true",
         help="Recreate dev environment from scratch for the selected dev+project (purges existing workspace).",
     )
+    padd.add_argument(
+        "--use-deploy-key",
+        action="store_true",
+        help="Use a per-dev deploy key for repo bootstrap via SSH (read-only).",
+    )
 
     sub.add_parser("list-devs")
 
@@ -657,7 +745,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.cmd == "add-dev":
-        cmd_add_dev(cfg, root, recreate=args.recreate)
+        cmd_add_dev(cfg, root, recreate=args.recreate, use_deploy_key=args.use_deploy_key)
         return 0
     if args.cmd == "list-devs":
         cmd_list_devs(root)

@@ -38,11 +38,13 @@ Each dev container runs OpenSSH server (`sshd`) to support:
 ## Workspace initialization
 
 On first provision:
-- Clone the project repo into `/workspace/<project>` (optional)
-- Or provision an empty workspace and require the developer to clone
+- Clone the project repo into `/workspace/<project>` (optional).
+- Or provision an empty workspace and require the developer to clone.
 
 Recommendation:
 - Bootstrap clone via `devctl` to standardize structure.
+- For private repos, use read-only deploy keys managed by Forge for **initial clone only**, and let developers push with their own GitHub credentials from inside the container.
+See `docs/13-github-deploy-keys.md` for a step-by-step GitHub tutorial.
 
 ## Git authentication
 
@@ -51,6 +53,16 @@ Developers authenticate to GitHub from inside the container:
 - optional: GitHub CLI auth (`gh auth login`)
 
 Forge should not require developer GitHub secrets stored on the host.
+
+Deploy keys created by Forge are:
+- scoped per `(developer, project)` and stored under `/opt/data/dev_workspaces/_deploy_keys/<project>/<dev>/`
+- mounted read-only into the dev container for bootstrap cloning
+- intended for **read-only access** (do not use them for `git push`)
+
+Developers must still:
+- add their own SSH key to their GitHub account
+- be granted write access to the repository on GitHub
+- configure `user.name` / `user.email` inside the container so commits are attributed correctly.
 
 ## Security defaults
 

@@ -16,6 +16,7 @@ services:
       - {{WORKSPACE_HOST}}:/workspace/{{PROJECT}}
       - {{AUTHORIZED_KEYS_HOST}}:/etc/ssh/authorized_keys:ro
       - {{SSHD_CONFIG_HOST}}:/etc/ssh/sshd_config:ro
+      - {{DEPLOY_KEY_HOST}}:/home/dev/.ssh/forge_deploy:ro
 
     restart: unless-stopped
 
