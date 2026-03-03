@@ -15,9 +15,37 @@ It must:
 
 ## Core commands (current implementation)
 
+- `devctl add-project`
 - `devctl add-dev`
 - `devctl list-devs`
 - `devctl delete-dev`
+
+## add-project
+
+`devctl add-project` creates or updates a project entry in `registry/projects.json` and can optionally generate a **project-level deploy key**.
+
+Prompts:
+- `project id` (slug, e.g. `hemis`; lower-case, alnum + dashes)
+- `repo` (HTTPS or SSH URL)
+- `default branch` (default `main`)
+- `stack` (`node` / `python` / `mixed`)
+- Preview settings:
+  - enable preview (yes/no)
+  - frontend dev port
+  - backend dev port (0 to disable)
+  - frontend path (default `/`)
+  - backend path prefix (default `/api`)
+- Resource defaults:
+  - cpus (e.g. `1.0`)
+  - memory (e.g. `2g`)
+
+Deploy key (optional):
+- After saving the project, `devctl` will ask:
+  - \"Generate a GitHub deploy key for this project (read-only, for bootstrap clones)? [y/N]\"
+- If you choose `y`:
+  - A keypair is created under `/opt/data/dev_workspaces/_deploy_keys/<project>/id_ed25519(.pub)`.
+  - The public key is printed so you can:
+    - add it as a **read-only Deploy key** on GitHub at `Settings → Deploy keys` for the project repo.
 
 ## add-dev (provision)
 
@@ -30,9 +58,6 @@ Flags:
 - `--recreate`:
   - Recreate the selected `(developer, project)` environment from scratch.
   - Uses the same cleanup logic as `delete-dev` to stop/remove the container, vhost, keys, and sshd config, and **purges the workspace directory** for that `(dev, project)` before re-provisioning.
-- `--use-deploy-key`:
-  - Use a per-dev+project **read-only deploy key** to bootstrap the repo over SSH.
-  - See `docs/13-github-deploy-keys.md` for GitHub integration steps.
 
 Generates:
 - dev container name: `dev-<project>-<dev>`
@@ -51,14 +76,10 @@ Repo bootstrap:
   - The workspace is only wiped when there is **no `.git` directory** present in `/workspace/<project>`.
 - Public repos (default):
   - Cloned using the HTTPS URL from `projects.json`.
-- Private repos with deploy keys:
-  - When `--use-deploy-key` is passed:
-    - `devctl` generates or reuses a per-dev+project deploy keypair under:
-      - `/opt/data/dev_workspaces/_deploy_keys/<project>/<dev>/id_ed25519(.pub)`
-    - The key directory is mounted read-only into the container at:
-      - `/home/dev/.ssh/forge_deploy`
-    - `devctl` uses `GIT_SSH_COMMAND` with `/home/dev/.ssh/forge_deploy/id_ed25519` to perform an SSH `git clone`.
-    - For GitHub HTTPS repos, the URL is converted to an SSH URL (`git@github.com:owner/repo.git`) automatically.
+- Private repos with per-project deploy keys:
+  - If a project deploy key exists under `/opt/data/dev_workspaces/_deploy_keys/<project>/id_ed25519(.pub)`:
+    - The key directory is mounted read-only into the dev container at `/home/dev/.ssh/forge_deploy`.
+    - `devctl` uses `GIT_SSH_COMMAND` with `/home/dev/.ssh/forge_deploy/id_ed25519` and an SSH repo URL (e.g. `git@github.com:owner/repo.git`) for cloning.
 - Non-fatal behavior:
   - If cloning fails (auth, network, missing deploy key on Git host, etc.):
     - The environment is still considered provisioned (container, workspace, vhost, `devs.json`).

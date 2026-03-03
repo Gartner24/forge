@@ -9,26 +9,31 @@ Why deploy keys?
 
 This guide shows how to:
 
-- let Forge clone **private** GitHub repos using per-dev deploy keys, and
+- let Forge clone **private** GitHub repos using per-project deploy keys, and
 - let each developer push commits using **their own** GitHub account.
 
 ## 1. Admin: configure a deploy key for a repo
 
-Follow these steps once per `(developer, project)` when using `--use-deploy-key`.
+Follow these steps once per **project** when using `devctl add-project`.
 
-1. Provision the dev environment:
+1. Create or update the project entry:
 
    ```bash
-   devctl add-dev --use-deploy-key
+   devctl add-project
    ```
 
-2. After running, `devctl` will:
+2. When prompted:
+
+   - enter the project id, repo URL, branch, stack, preview ports, and resources as needed
+   - when asked \"Generate a GitHub deploy key for this project?\", answer `y`
+
+3. After running, `devctl` will:
 
    - create a deploy keypair under  
-     `/opt/data/dev_workspaces/_deploy_keys/<project>/<dev>/id_ed25519(.pub)`
+     `/opt/data/dev_workspaces/_deploy_keys/<project>/id_ed25519(.pub)`
    - print the **public key** and target repo URL.
 
-3. In GitHub, as the repo owner:
+4. In GitHub, as the repo owner:
 
    - Open the repository.
    - Go to **Settings → Deploy keys**.
@@ -39,11 +44,10 @@ Follow these steps once per `(developer, project)` when using `--use-deploy-key`
    - **Allow write access**: **leave this unchecked** (read-only).
    - Save.
 
-4. Re-run the clone if needed:
+5. Re-run the clone if needed:
 
-   - If the initial bootstrap failed because the key wasn’t added yet, either:
-     - re-run `devctl add-dev --use-deploy-key`, or
-     - inside the container, run `git clone` / `git pull` again in `/workspace/<project>`.
+   - If an earlier clone failed because the key wasn’t added yet, inside the container you can run:
+     - `git clone` or `git pull` again in `/workspace/<project>` using the project deploy key that is mounted at `/home/dev/.ssh/forge_deploy`.
 
 ## 2. Developer: connect the container to your GitHub account
 
@@ -97,8 +101,8 @@ In the dev container (as user `dev`):
 ## 3. Summary of responsibilities
 
 - **Forge (deploy keys)**:
-  - creates per-dev+project deploy keys under `_deploy_keys/`
-  - uses them to perform **read-only** `git clone` during `devctl add-dev --use-deploy-key`
+  - creates per-project deploy keys under `_deploy_keys/<project>/`
+  - uses them to perform **read-only** `git clone` during `devctl add-dev` when a project deploy key exists
   - never uses deploy keys for `git push`
 
 - **Admin**:

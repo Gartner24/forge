@@ -43,7 +43,7 @@ On first provision:
 
 Recommendation:
 - Bootstrap clone via `devctl` to standardize structure.
-- For private repos, use read-only deploy keys managed by Forge for **initial clone only**, and let developers push with their own GitHub credentials from inside the container.
+- For private repos, use read-only **per-project** deploy keys managed by Forge for **initial clone only**, and let developers push with their own GitHub credentials from inside the container.
 See `docs/13-github-deploy-keys.md` for a step-by-step GitHub tutorial.
 
 ## Git authentication
@@ -55,7 +55,7 @@ Developers authenticate to GitHub from inside the container:
 Forge should not require developer GitHub secrets stored on the host.
 
 Deploy keys created by Forge are:
-- scoped per `(developer, project)` and stored under `/opt/data/dev_workspaces/_deploy_keys/<project>/<dev>/`
+- scoped per **project** and stored under `/opt/data/dev_workspaces/_deploy_keys/<project>/`
 - mounted read-only into the dev container for bootstrap cloning
 - intended for **read-only access** (do not use them for `git push`)
 
