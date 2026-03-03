@@ -14,7 +14,7 @@ To satisfy this, dev containers run OpenSSH (`sshd`). The gateway enforces authe
 
 ## High-level behavior
 
-- Developers SSH to the gateway only.
+- Developers SSH to the gateway only (e.g. `ssh.dev.domain.com:2224`).
 - Gateway authenticates via public key.
 - Gateway resolves developer identity and allowed projects.
 - Gateway forwards the SSH connection to the correct dev container on `dev-web` (container sshd).
@@ -30,6 +30,7 @@ Developers never receive a host shell.
 Sources:
 - `registry/devs.json` is the source of truth for developer identities and access.
 - Public keys are stored under `gateway/authorized_keys/`.
+- Gateway configuration (listen address, host key path, log directory) is defined in `registry/gateway.toml` on the server.
 
 ## Routing model
 
