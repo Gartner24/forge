@@ -320,6 +320,12 @@ impl Handler for GatewayHandler {
         user: &str,
         key: &PublicKey,
     ) -> Result<Auth, Self::Error> {
+        // Auto-refresh access policy from devs.json on each auth attempt so
+        // add-dev / delete-dev changes apply without restarting the gateway.
+        if let Err(e) = self.state.reload_access().await {
+            warn!("failed to refresh access state from devs.json: {e}");
+        }
+
         // Username encodes dev-project pair: <dev>-<project>.
         let parts: Vec<&str> = user.splitn(2, '-').collect();
         if parts.len() != 2 {

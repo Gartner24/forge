@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-server ca-certificates git curl wget \
     ripgrep fd-find vim nano less \
     build-essential \
+    docker.io docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g ${DEV_GID} ${DEV_USER} \
