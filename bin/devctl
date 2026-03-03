@@ -204,7 +204,11 @@ def _ssh_repo_url(project: Project) -> str:
     if repo.startswith("git@") or repo.startswith("ssh://"):
         return repo
 
-    m = re.match(r"^https://github\\.com/([^/]+)/([^/]+?)(\\.git)?$", repo)
+    # Match GitHub HTTPS URLs like:
+    # - https://github.com/owner/repo
+    # - https://github.com/owner/repo.git
+    # (optionally with a trailing slash)
+    m = re.match(r"^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", repo)
     if m:
         owner, name, _ = m.groups()
         return f"git@github.com:{owner}/{name}.git"
