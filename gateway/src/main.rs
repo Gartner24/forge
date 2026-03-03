@@ -270,7 +270,10 @@ fn key_allowed_for_dev(path: &Path, offered: &PublicKey) -> Result<bool> {
         };
 
         if let Ok(pk) = parse_public_key_base64(base64) {
-            if &pk == offered {
+            // Compare only cryptographic key material. PublicKey equality in the
+            // underlying ssh-key crate also includes comment metadata, which may
+            // differ between parsed authorized_keys entries and offered client keys.
+            if pk.key_data() == offered.key_data() {
                 return Ok(true);
             }
         }
