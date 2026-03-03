@@ -558,6 +558,23 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
     dev_id = _slug(input("Developer id (e.g. santiago): "))
     project = _select_project(projects)
 
+    # Paths
+    ws_root = Path(cfg.dev_workspace_root)
+    workspace = ws_root / project.id / dev_id
+    keys_dir = ws_root / "_keys" / project.id / dev_id
+    sshd_dir = ws_root / "_sshd" / project.id / dev_id
+    sshd_cfg_file = sshd_dir / "sshd_config"
+
+    # Developer SSH key UX: allow reusing an existing key for this dev+project so
+    # admins don't have to paste it on every re-run.
+    existing_key_path = keys_dir / cfg.default_dev_user
+    existing_key: str = ""
+    if existing_key_path.exists():
+        try:
+            existing_key = existing_key_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            existing_key = ""
+
     print("\nDeveloper SSH access")
     print("--------------------")
     print("We need the developer's SSH PUBLIC key to allow Remote-SSH into this dev container.")
@@ -567,16 +584,19 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
     print("  3) Copy the full line starting with \"ssh-ed25519 ...\"")
     print("You can now either paste that public key here, or provide a path to a .pub file.")
 
-    pubkey = _read_pubkey_from_input(
-        input("Developer SSH public key (path or paste inline; leave empty to paste): ").strip() or None
-    )
-
-    # Paths
-    ws_root = Path(cfg.dev_workspace_root)
-    workspace = ws_root / project.id / dev_id
-    keys_dir = ws_root / "_keys" / project.id / dev_id
-    sshd_dir = ws_root / "_sshd" / project.id / dev_id
-    sshd_cfg_file = sshd_dir / "sshd_config"
+    if existing_key:
+        print("\nAn SSH public key is already configured for this dev+project.")
+        reuse = input("Reuse the existing developer SSH public key? [Y/n]: ").strip().lower()
+        if reuse in ("", "y", "yes"):
+            pubkey = existing_key
+        else:
+            pubkey = _read_pubkey_from_input(
+                input("Developer SSH public key (path or paste inline; leave empty to paste): ").strip() or None
+            )
+    else:
+        pubkey = _read_pubkey_from_input(
+            input("Developer SSH public key (path or paste inline; leave empty to paste): ").strip() or None
+        )
 
     # Optional destructive recreate-from-zero path: fully tear down any existing
     # environment for this dev+project, including the workspace, before
@@ -635,6 +655,17 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
         project_deploy_dir = _project_deploy_key_dir(cfg, project.id)
         priv_key = project_deploy_dir / "id_ed25519"
         if priv_key.exists():
+            try:
+                st = priv_key.stat()
+                if st.st_uid != cfg.default_dev_uid:
+                    print(
+                        f"Note: deploy key {priv_key} is not owned by uid {cfg.default_dev_uid}; "
+                        "if SSH clone fails with a permission error, rerun 'devctl add-project' "
+                        "for this project or fix ownership on the _deploy_keys directory."
+                    )
+            except OSError:
+                pass
+
             ssh_repo = _ssh_repo_url(project)
             print(
                 f"Using project deploy key at {priv_key} for SSH clone "
