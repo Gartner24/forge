@@ -36,7 +36,7 @@
       }
     },
     {
-      "id": "nvim.lua",
+      "id": "nvim-lua",
       "repo": "https://github.com/Gartner24/nvim.lua",
       "default_branch": "main",
       "stack": "node",
@@ -51,5 +51,6 @@
         "cpus": "1.0",
         "memory": "2g"
       }
+    }
   ]
 }
