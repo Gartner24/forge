@@ -18,6 +18,9 @@ This document covers day-2 operations: maintaining proxy, gateway, registries, w
 - Provision dev envs via `devctl add-dev`
 - Review audit logs:
   - `gateway/logs/audit.log`
+  - Runtime gateway events:
+    - `sudo docker logs proxy-gateway-1 --tail=80`
+    - (or resolve actual name with `sudo docker ps --format '{{.Names}}' | grep gateway`)
 
 ## Updating dev images
 
@@ -52,6 +55,27 @@ At minimum:
 - gateway process uptime
 - disk usage in `/opt/data/dev_workspaces`
 - failed SSH auth attempts (gateway logs)
+
+## Using `/opt/data/logs` for retention
+
+Recommended structure:
+
+- `/opt/data/logs/gateway/audit.log`
+- `/opt/data/logs/proxy/` (if you export proxy logs)
+- `/opt/data/logs/apps/` (optional app-level logs)
+
+Basic commands:
+
+- Recent gateway events:
+  - `sudo tail -n 100 /opt/data/logs/gateway/audit.log`
+- Failed auth attempts:
+  - `sudo rg "result=rejected" /opt/data/logs/gateway/audit.log`
+- Accepted logins:
+  - `sudo rg "result=accepted" /opt/data/logs/gateway/audit.log`
+
+Backup suggestion:
+
+- Include `/opt/data/logs/` in your regular backup job with `/opt/data/backups/`.
 
 ## Common maintenance tasks
 

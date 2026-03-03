@@ -212,6 +212,27 @@ def _append_gateway_authorized_key(dev_id: str, pubkey: str) -> None:
         f.write(new_line + "\n")
 
 
+def _ensure_authorized_key_line(path: Path, pubkey: str) -> None:
+    """
+    Ensure one authorized_keys-style line exists in `path` exactly once.
+    """
+    new_line = pubkey.strip()
+    existing = ""
+    if path.exists():
+        try:
+            existing = path.read_text(encoding="utf-8")
+        except OSError:
+            existing = ""
+
+    if existing:
+        for line in existing.splitlines():
+            if line.strip() == new_line:
+                return
+
+    with path.open("a", encoding="utf-8") as f:
+        f.write(new_line + "\n")
+
+
 def _render_template(template_text: str, variables: Dict[str, str]) -> str:
     out = template_text
     for k, v in variables.items():
@@ -730,8 +751,8 @@ def cmd_add_dev(cfg: ForgeConfig, root: Path, recreate: bool = False) -> None:
     keys_dir.mkdir(parents=True, exist_ok=True)
     sshd_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write authorized key file for user "dev"
-    (keys_dir / cfg.default_dev_user).write_text(pubkey.strip() + "\n", encoding="utf-8")
+    # Write authorized key file for user "dev" (support multiple keys per dev/project).
+    _ensure_authorized_key_line(keys_dir / cfg.default_dev_user, pubkey)
     os.chmod(keys_dir, 0o755)
     os.chmod(keys_dir / cfg.default_dev_user, 0o644)
 
@@ -954,7 +975,7 @@ def cmd_gateway_add_key(cfg: ForgeConfig, root: Path, dev: str, pubkey_arg: Opti
         keys_dir = ws_root / "_keys" / project_id / dev_id
         keys_dir.mkdir(parents=True, exist_ok=True)
         key_path = keys_dir / cfg.default_dev_user
-        key_path.write_text(pubkey.strip() + "\n", encoding="utf-8")
+        _ensure_authorized_key_line(key_path, pubkey)
         os.chmod(keys_dir, 0o755)
         os.chmod(key_path, 0o644)
 
