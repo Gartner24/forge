@@ -1,45 +1,82 @@
-# Forge overview
+# Overview
 
-Forge is a self-hosted development environment platform designed for a single VPS. It provisions isolated per-developer, per-project Docker workspaces and provides SSH access via a Rust gateway (jump host) so developers can use:
+Forge is a self-hosted infrastructure suite designed for solo developers and small teams. It provisions isolated dev environments, deploys applications, monitors uptime, sends alerts, and scans for security vulnerabilities — all from a single CLI on your own servers.
 
+## What Forge Replaces
 
-- Terminal SSH sessions
-- VS Code / Cursor Remote-SSH
+| Forge Module | Replaces |
+|---|---|
+| FluxForge | Tailscale / ZeroTier |
+| SmeltForge | Dokploy / Coolify / Render |
+| WatchForge | Uptime Kuma / BetterUptime |
+| SparkForge | Gotify / basic PagerDuty |
+| HearthForge | GitHub Codespaces / Coder |
+| PenForge | Manual Nuclei runs / paid scanners |
 
-Forge also generates and manages reverse-proxy routing for developer preview domains, maintains a project registry, enforces access policies, and records audit logs.
+## What Forge Is Not
 
-## Goals
+- A Kubernetes platform or multi-node scheduler
+- A replacement for production CI/CD pipelines
+- A full IAM or SSO solution
+- A multi-tenant platform with VM-level security guarantees
 
-- Isolated developer workspaces (one container per developer per project)
-- No host shell access for developers
-- Compatibility with VS Code / Cursor Remote-SSH
-- Repeatable provisioning and offboarding via a single admin CLI (`devctl`)
-- Clean separation between:
-  - infrastructure (`/opt/infra`)
-  - production apps (`/opt/apps`)
-  - runtime data (`/opt/data`)
-- Strong default security posture (no privileged containers, no Docker socket mounts, non-root)
+## Core Design Principles
 
-## Non-goals
+**Modular by default.**
+Install only what you need. A developer who only wants remote dev workspaces installs HearthForge. Someone who only wants deployments installs SmeltForge. No module is ever a hard dependency of another.
 
-- Kubernetes or multi-node scheduling
-- Full IAM / SSO integration
-- Multi-tenant security guarantees comparable to hardened VMs
-- Replacing production CI/CD; Forge is for developer environments
+**FluxForge is always optional.**
+Every module works fully on a single VPS with zero mesh networking. FluxForge only adds the ability to connect multiple servers together. If you have one server, you never need FluxForge.
 
-## System summary
+**Lightweight core.**
+`forge` installs as a single Go binary with a small encrypted secrets file. No background daemons, no Docker containers, nothing running until you install a module.
 
-- Public edge is handled by a global Nginx proxy stack (`/opt/infra/proxy`).
-- Developer environments run on a dedicated Docker network (`dev-web`) separate from production (`web`).
-- Developers authenticate with SSH keys to the Rust gateway; the gateway routes them to their dev container’s sshd.
-- Developer preview hostnames follow Pattern A: one hostname per developer per project (recommended).
+**CLI-first.**
+The web dashboard is a future feature. Everything in Forge is designed to be fully operable from the terminal. This makes Forge scriptable, SSH-friendly, and CI-compatible from day one.
 
-## Key design decision: VS Code Remote-SSH compatibility
+**Audit everything.**
+Every module writes to an append-only audit log. Logs are never truncated or deleted by Forge. This is a hard rule, not a configuration option.
 
-VS Code / Cursor Remote-SSH expects a normal SSH server endpoint with stable filesystem semantics and SFTP support. For that reason, each dev container runs OpenSSH (`sshd`). The gateway acts as a jump host rather than replacing sshd inside the container.
+## Single VPS vs Multi-VPS
 
-## Where to start
+Forge works on both. The experience is the same — the only difference is whether FluxForge is installed.
 
-- Read `01-architecture.md` for the full VPS layout and data flows.
-- Read `07-devctl.md` for provisioning and admin operations.
-- Read `06-ssh-gateway.md` to understand routing, access policies, and logging.
+**Single VPS (no FluxForge needed):**
+```bash
+forge install smeltforge
+forge smeltforge add --project myapp
+forge smeltforge deploy --project myapp
+```
+
+**Multi-VPS (with FluxForge):**
+```bash
+# Primary VPS — initialize the mesh
+forge install fluxforge
+forge fluxforge init
+
+# Each additional VPS — join the mesh
+forge fluxforge join --controller <ip>:7777 --token <token>
+
+# Deploy to any node
+forge smeltforge deploy --project myapp --node vps2
+```
+
+The module commands are identical. FluxForge just makes `--node` work.
+
+## Module Install/Uninstall
+
+```bash
+forge install <module>       # install and start a module
+forge uninstall <module>     # stop and remove a module
+forge status                 # show all installed modules and their state
+forge update <module>        # update a module to latest version
+```
+
+Each module self-registers with Forge core on install. `forge status` discovers what is installed by querying the module registry — nothing is hardcoded.
+
+## Where to Go Next
+
+- [Architecture](01-architecture.md) — full system design, components, and data flows
+- [Project Structure](02-project-structure.md) — monorepo layout and conventions
+- [Contributing](03-contributing.md) — how to set up a dev environment and contribute
+- [Module docs](modules/) — deep documentation for each module
