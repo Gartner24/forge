@@ -1,46 +1,100 @@
 # Forge
 
-Forge is a self-hosted development environment platform for a single VPS. It provisions isolated per-developer, per-project Docker workspaces and provides SSH access via a Rust gateway (jump host) so developers can use terminal SSH and VS Code/Cursor Remote-SSH without accessing the host filesystem.
+Forge is a self-hosted infrastructure suite for solo developers and small teams who want full control over their infrastructure without vendor lock-in. It replaces a collection of paid SaaS tools with self-hosted, modular, integrated alternatives that run on any VPS or server.
 
-Forge also generates reverse-proxy routing for developer preview domains, manages a project registry, enforces access policies, and records audit logs.
+## The Suite
 
-## Repository contents
+| Module | Name | Role |
+|---|---|---|
+| Core | **Forge** | CLI binary, secrets store, module manager |
+| Mesh network | **FluxForge** | WireGuard-based private mesh networking |
+| Deployment | **SmeltForge** | Deploy apps across your servers |
+| Monitoring | **WatchForge** | Uptime monitoring and public status page |
+| Notifications | **SparkForge** | Alerts via Gotify, email, and webhooks |
+| Dev workspaces | **HearthForge** | Remote developer environments via SSH |
+| Security | **PenForge** | Automated security scanning |
 
-- `bin/devctl`
-  Admin-only CLI to create, list, grant, revoke, disable, and delete developer environments.
+## Quickstart
 
-- `gateway/`
-  Rust SSH bastion/jump host (host keys, authorized keys, audit logs).
+```bash
+# 1. Install mise (manages Go, Rust, Just versions)
+curl https://mise.run | sh
 
-- `registry/`
-  Project and developer registries (`projects.json`, `devs.json`).
+# 2. Clone the repo
+git clone https://github.com/<user>/forge.git && cd forge
 
-- `templates/`
-  Templates used to generate dev containers, SSH configuration, and proxy vhosts.
+# 3. Install all pinned tool versions
+mise install
 
-- `docs/`
-  Architecture and operations documentation.
+# 4. Build everything
+just build-all
 
-## Documentation index
+# 5. Run all tests
+just test-all
+```
 
-Start here:
+## Installing Forge
 
-- `docs/00-overview.md`
-- `docs/01-architecture.md`
+```bash
+# Install Forge core (CLI + secrets store — always the first step)
+just core/install
 
-Core system docs:
+# Then install whichever modules you need
+forge install smeltforge
+forge install watchforge
+forge install sparkforge
+forge install hearthforge
+forge install penforge
 
-- `docs/02-threat-model.md`
-- `docs/03-networking-and-routing.md`
-- `docs/04-domains-and-tls.md`
-- `docs/05-dev-containers.md`
-- `docs/06-ssh-gateway.md`
-- `docs/07-devctl.md`
-- `docs/08-project-registry.md`
+# FluxForge only if you need multi-VPS mesh networking
+forge install fluxforge
 
-Operations:
+# Check what is installed and running
+forge status
+```
 
-- `docs/09-operations.md`
-- `docs/10-offboarding.md`
-- `docs/11-production-deploy.md`
-- `docs/12-troubleshooting.md`
+## Repository Layout
+
+```
+forge/
+├── README.md
+├── .mise.toml          # pins Go, Rust, Just versions
+├── go.work             # Go workspace (ties all modules together locally)
+├── justfile            # root task runner
+├── docs/               # project-wide documentation
+│   ├── modules/        # one summary doc per module
+│   └── ...
+├── shared/             # shared Go libraries
+├── core/               # Forge CLI + secrets store
+├── fluxforge/          # mesh networking
+├── smeltforge/         # deployment platform
+├── watchforge/         # uptime monitoring
+├── sparkforge/         # notifications
+├── hearthforge/        # remote dev workspaces
+│   ├── daemon/         # Go provisioning daemon
+│   └── gateway/        # Rust SSH gateway
+└── penforge/           # security scanning
+```
+
+## Documentation
+
+**Suite-level docs** (start here):
+- [Overview](docs/00-overview.md)
+- [Architecture](docs/01-architecture.md)
+- [Project Structure](docs/02-project-structure.md)
+- [Contributing](docs/03-contributing.md)
+- [Releasing](docs/04-releasing.md)
+- [Security Policy](docs/05-security.md)
+
+**Module docs:**
+- [Forge Core](docs/modules/core.md)
+- [FluxForge](docs/modules/fluxforge.md)
+- [SmeltForge](docs/modules/smeltforge.md)
+- [WatchForge](docs/modules/watchforge.md)
+- [SparkForge](docs/modules/sparkforge.md)
+- [HearthForge](docs/modules/hearthforge.md)
+- [PenForge](docs/modules/penforge.md)
+
+## License
+
+MIT
