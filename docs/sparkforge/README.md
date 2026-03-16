@@ -100,9 +100,10 @@ forge sparkforge token revoke <token>
 
 ## Deep Documentation
 
-See [`docs/sparkforge/`](./) for:
-- Channel configuration reference
-- Priority routing rules
-- Gotify setup and mobile app guide
-- Public API reference
-- Alert deduplication internals
+## Deep Documentation
+
+- [Architecture](01-architecture.md)
+- [Channels](02-channels.md)
+- [Priority Routing and Deduplication](03-priority-routing.md)
+- [Public Notification API](04-public-api.md)
+- [CLI Reference](05-cli-reference.md)

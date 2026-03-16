@@ -71,8 +71,9 @@ Planned: full HA via Raft consensus across 3 controller nodes.
 
 ## Deep Documentation
 
-See [`docs/fluxforge/`](./) for:
-- Detailed architecture
-- NAT traversal internals
-- WireGuard configuration reference
-- Controller HA design (future)
+## Deep Documentation
+
+- [Architecture](01-architecture.md)
+- [Joining the Mesh and Token Management](02-joining-and-tokens.md)
+- [Roles and RBAC](03-rbac.md)
+- [CLI Reference](04-cli-reference.md)

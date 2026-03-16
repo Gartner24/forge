@@ -6,24 +6,26 @@ This document covers day-2 operations for HearthForge: maintaining proxy, gatewa
 
 ### Proxy
 
+When SmeltForge is installed (standard setup), HearthForge uses Caddy. Vhosts are managed via the Caddy Admin API — never edit Caddy config files directly.
+
+```bash
+# Check Caddy is running
+docker ps | grep caddy
+
+# View Caddy logs
+forge logs smeltforge
+
+# Force-reload Caddy config (should not normally be needed)
+curl -s http://localhost:2019/load
+```
+
+Without SmeltForge (standalone Nginx):
 ```bash
 # Validate Nginx config
 docker exec -it nginx-proxy nginx -t
 
 # Reload Nginx config
 docker exec -it nginx-proxy nginx -s reload
-
-# Review active vhosts
-ls /opt/infra/proxy/conf.d/active/
-```
-
-If SmeltForge is installed and Caddy is used instead:
-```bash
-# Validate Caddy config
-docker exec -it caddy caddy validate --config /etc/caddy/Caddyfile
-
-# Reload Caddy
-docker exec -it caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
 ### Gateway

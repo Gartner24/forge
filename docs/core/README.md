@@ -73,3 +73,10 @@ This clears automatically when incidents resolve.
 ## Source
 
 `core/` — see [Project Structure](../02-project-structure.md) for layout details.
+
+## Deep Documentation
+
+- [Secrets Store](01-secrets.md)
+- [Module Lifecycle](02-module-lifecycle.md)
+- [CLI Reference](03-cli-reference.md)
+- [Config File](04-config.md)

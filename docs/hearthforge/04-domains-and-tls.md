@@ -29,9 +29,15 @@ Wildcard DNS is recommended to avoid per-developer manual DNS changes.
 
 Reason: avoid Let's Encrypt rate limits and avoid per-dev cert issuance.
 
-If SmeltForge is installed, Caddy handles TLS automatically for both production and dev domains via Let's Encrypt. The manual certbot setup described below applies to the standalone Nginx proxy only.
+When SmeltForge is installed (the standard setup), Caddy handles TLS automatically for both production and dev preview domains via Let's Encrypt DNS-01 challenge. No manual certbot setup is needed.
 
-## Certificate Storage
+The manual certbot setup described below applies only when running HearthForge without SmeltForge, using a standalone Nginx proxy.
+
+## Certificate Storage (Caddy, standard setup)
+
+Caddy manages certificate storage automatically. Certificates are stored in Caddy's data directory and renewed without admin intervention. No additional configuration is required.
+
+## Certificate Storage (Nginx, standalone setup)
 
 Proxy stack stores certificates via mounted volumes:
 - `/etc/letsencrypt` in proxy and certbot containers
