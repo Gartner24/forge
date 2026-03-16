@@ -128,8 +128,8 @@ chore(shared): bump golangci-lint version
 5. Add a `README.md`
 6. Add a `main.go` entry point
 7. Register the module in Forge core's installer
-8. Add a summary doc to `docs/modules/<module>.md`
-9. Add deep docs to `<module>/docs/`
+8. Add a summary doc to `docs/<module>/README.md`
+9. Add deep docs to `docs/<module>/` alongside the README
 
 ## CI
 

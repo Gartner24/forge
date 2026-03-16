@@ -100,7 +100,7 @@ forge sparkforge token revoke <token>
 
 ## Deep Documentation
 
-See [`sparkforge/docs/`](../../sparkforge/docs/) for:
+See [`docs/sparkforge/`](./) for:
 - Channel configuration reference
 - Priority routing rules
 - Gotify setup and mobile app guide
