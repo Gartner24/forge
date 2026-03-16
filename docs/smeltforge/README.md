@@ -102,7 +102,7 @@ When FluxForge is installed, SmeltForge gains:
 
 ## Deep Documentation
 
-See [`smeltforge/docs/`](../../smeltforge/docs/) for:
+See [`docs/smeltforge/`](./) for:
 - Project registry schema reference
 - Caddy proxy configuration
 - Deployment strategy internals

@@ -61,9 +61,16 @@ forge/
 ├── .mise.toml          # pins Go, Rust, Just versions
 ├── go.work             # Go workspace (ties all modules together locally)
 ├── justfile            # root task runner
-├── docs/               # project-wide documentation
-│   ├── modules/        # one summary doc per module
-│   └── ...
+├── docs/               # all documentation lives here
+│   ├── 00-overview.md ... 05-security.md  # suite-level docs
+│   ├── shared/         # shared library docs (module/, notify/, audit/, secrets/, registry/, config/)
+│   ├── core/           # Forge Core docs
+│   ├── fluxforge/      # FluxForge docs
+│   ├── smeltforge/     # SmeltForge docs
+│   ├── watchforge/     # WatchForge docs
+│   ├── sparkforge/     # SparkForge docs
+│   ├── hearthforge/    # HearthForge docs (14 files)
+│   └── penforge/       # PenForge docs
 ├── shared/             # shared Go libraries
 ├── core/               # Forge CLI + secrets store
 ├── fluxforge/          # mesh networking
@@ -87,13 +94,14 @@ forge/
 - [Security Policy](docs/05-security.md)
 
 **Module docs:**
-- [Forge Core](docs/modules/core.md)
-- [FluxForge](docs/modules/fluxforge.md)
-- [SmeltForge](docs/modules/smeltforge.md)
-- [WatchForge](docs/modules/watchforge.md)
-- [SparkForge](docs/modules/sparkforge.md)
-- [HearthForge](docs/modules/hearthforge.md)
-- [PenForge](docs/modules/penforge.md)
+- [Shared Library](docs/shared/README.md)
+- [Forge Core](docs/core/README.md)
+- [FluxForge](docs/fluxforge/README.md)
+- [SmeltForge](docs/smeltforge/README.md)
+- [WatchForge](docs/watchforge/README.md)
+- [SparkForge](docs/sparkforge/README.md)
+- [HearthForge](docs/hearthforge/README.md)
+- [PenForge](docs/penforge/README.md)
 
 ## License
 

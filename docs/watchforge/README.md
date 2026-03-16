@@ -107,7 +107,7 @@ When SmeltForge is installed:
 
 ## Deep Documentation
 
-See [`watchforge/docs/`](../../watchforge/docs/) for:
+See [`docs/watchforge/`](./) for:
 - Monitor configuration reference
 - Incident tracker internals
 - Status page customization

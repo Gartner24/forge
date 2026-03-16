@@ -139,7 +139,7 @@ Learning path:
 
 ## Deep Documentation
 
-See [`penforge/docs/`](../../penforge/docs/) for:
+See [`docs/penforge/`](./) for:
 - Scan target configuration reference
 - Engine interface specification
 - Finding schema reference

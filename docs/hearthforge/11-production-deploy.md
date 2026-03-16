@@ -58,4 +58,4 @@ forge smeltforge add --project myapp
 forge smeltforge deploy --project myapp
 ```
 
-SmeltForge handles image pulls, container restarts, Caddy proxy routing, and deploy audit logging. See [SmeltForge docs](../../smeltforge/docs/) for details.
+SmeltForge handles image pulls, container restarts, Caddy proxy routing, and deploy audit logging. See [SmeltForge docs](../smeltforge/README.md) for details.

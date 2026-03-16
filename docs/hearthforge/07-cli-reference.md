@@ -61,12 +61,12 @@ forge hearthforge add-dev [--ide vscode|jetbrains|both] [--recreate] [--node <no
 - Container: `dev-<project>-<dev>`
 - Workspace: `/opt/data/dev_workspaces/<project>/<dev>/` (host), `/workspace/<project>` (container)
 - Dev hostname: `<dev>-<project>.dev.domain.com`
-- Proxy vhost config
+- Proxy vhost config for the preview domain
 - `devs.json` developer record and access mapping
 
 **Output to admin:**
 - DNS checklist (if wildcard not used)
-- SSH config snippet for developer
+- SSH config snippet for developer — includes `LocalForward` lines for every port in the project's `dev_ports` configuration, enabling automatic SSH port forwarding to `localhost:<port>` on the developer's machine
 - Verification commands
 
 ---

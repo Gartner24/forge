@@ -17,9 +17,16 @@ forge/
 │       ├── ci.yml          # runs on every PR
 │       ├── release.yml     # runs on version tag push
 │       └── security.yml    # weekly PenForge scan
-├── docs/                   # project-wide documentation
-│   ├── modules/            # one summary doc per module
-│   └── ...
+├── docs/                   # all documentation lives here
+│   ├── 00-overview.md ... 05-security.md  # suite-level docs
+│   ├── shared/             # shared library docs (module, notify, audit, secrets, registry, config)
+│   ├── core/               # Forge Core docs
+│   ├── fluxforge/          # FluxForge docs
+│   ├── smeltforge/         # SmeltForge docs
+│   ├── watchforge/         # WatchForge docs
+│   ├── sparkforge/         # SparkForge docs
+│   ├── hearthforge/        # HearthForge docs (14 files)
+│   └── penforge/           # PenForge docs
 ├── shared/                 # shared Go libraries
 ├── core/                   # Forge CLI + secrets store
 ├── fluxforge/              # mesh networking
@@ -114,18 +121,18 @@ Every module follows the same pattern:
 ├── justfile        # at minimum: build, test, dev
 ├── README.md       # what it does, how to build, how to run
 ├── main.go         # entry point
-├── docs/           # deep module-specific documentation
 ├── cmd/            # cobra CLI subcommands (one file per command)
 ├── internal/       # private business logic (not importable externally)
 └── registry/       # JSON config files (not committed with real data)
 ```
+
+Documentation for each module lives in `docs/<module>/` at the repo root, not inside the module directory itself. This keeps all documentation in one place and the module directories focused purely on code.
 
 ### Directory Conventions
 
 - `cmd/` — cobra CLI command definitions. One file per command. Public.
 - `internal/` — business logic. Not importable by other modules. Private.
 - `registry/` — JSON data files (projects, monitors, targets). Example entries only in git.
-- `docs/` — module-specific deep documentation.
 - `tests/` — integration tests that require external dependencies (Docker, network).
 
 ### HearthForge is Different
@@ -136,7 +143,6 @@ HearthForge has two build systems (Go and Rust) so its layout differs slightly:
 hearthforge/
 ├── justfile            # builds both daemon and gateway
 ├── README.md
-├── docs/               # all HearthForge documentation
 ├── daemon/             # Go provisioning daemon
 │   ├── go.mod
 │   ├── main.go
@@ -150,6 +156,8 @@ hearthforge/
 ├── templates/          # container and proxy config templates
 └── registry/           # devs.json, projects.json
 ```
+
+HearthForge documentation lives in `docs/hearthforge/` alongside all other module docs.
 
 ## shared/ Library
 
@@ -167,6 +175,8 @@ shared/
 ```
 
 **Rule:** if more than one module needs the same code, it goes in `shared/`. If only one module needs it, it stays in that module's `internal/`.
+
+Full documentation for each package lives in [`docs/shared/`](../docs/shared/README.md). If you are building a new module, read `docs/shared/` before writing any code — understanding the Module interface, the notify client, and the audit writer up front will save significant rework.
 
 ## Naming Conventions
 
