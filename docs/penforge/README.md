@@ -139,9 +139,10 @@ Learning path:
 
 ## Deep Documentation
 
-See [`docs/penforge/`](./) for:
-- Scan target configuration reference
-- Engine interface specification
-- Finding schema reference
-- Report format documentation
-- Scope enforcement internals
+## Deep Documentation
+
+- [Architecture](01-architecture.md)
+- [Scan Engines](02-engines.md)
+- [Finding Lifecycle](03-findings.md)
+- [Scope Enforcement](04-scope-enforcement.md)
+- [CLI Reference](05-cli-reference.md)

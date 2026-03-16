@@ -31,7 +31,7 @@ HearthForge also generates and manages reverse-proxy routing for developer previ
 
 ## System Summary
 
-- Public edge is handled by a global Nginx proxy stack (`/opt/infra/proxy`) or SmeltForge's Caddy instance if installed.
+- Public edge is handled by SmeltForge's Caddy instance. If SmeltForge is not installed, an Nginx proxy can be configured manually — see [Domains and TLS](04-domains-and-tls.md).
 - Developer environments run on a dedicated Docker network (`dev-web`) separate from production (`web`).
 - Developers authenticate with SSH keys to the Rust gateway; the gateway routes them to their dev container's sshd.
 - Developer preview hostnames follow Pattern A: one hostname per developer per project.
@@ -43,6 +43,6 @@ VS Code / Cursor / JetBrains Remote-SSH expect a normal SSH server endpoint with
 ## Where to Start
 
 - Read [Architecture](01-architecture.md) for the full VPS layout and data flows
-- Read [CLI Reference](07-devctl.md) for provisioning and admin operations
+- Read [CLI Reference](07-cli-reference.md) for provisioning and admin operations
 - Read [SSH Gateway](06-ssh-gateway.md) to understand routing, access policies, and logging
 - Read [Threat Model](02-threat-model.md) for security boundaries and non-negotiable rules

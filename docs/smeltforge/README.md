@@ -102,9 +102,11 @@ When FluxForge is installed, SmeltForge gains:
 
 ## Deep Documentation
 
-See [`docs/smeltforge/`](./) for:
-- Project registry schema reference
-- Caddy proxy configuration
-- Deployment strategy internals
-- Webhook security
-- Audit trail format
+## Deep Documentation
+
+- [Architecture](01-architecture.md)
+- [Deploy Strategies](02-deploy-strategies.md)
+- [Deploy Triggers](03-deploy-triggers.md)
+- [Project Registry](04-projects.md)
+- [Environment Variables](05-env-vars.md)
+- [CLI Reference](06-cli-reference.md)

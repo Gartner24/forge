@@ -62,11 +62,13 @@ Developers never have host shell access. All developer interaction happens insid
 
 ## Primary Components
 
-### Proxy Stack (`/opt/infra/proxy`)
+### Proxy
 
-Public entry point for HTTP/HTTPS (ports 80/443). Terminates TLS for production and developer preview domains. Routes requests to upstream containers by Docker DNS name.
+Public entry point for HTTP/HTTPS (ports 80/443). Terminates TLS for production and developer preview domains. Routes requests to upstream containers by Docker DNS name on `dev-web`.
 
-If SmeltForge is installed, HearthForge uses SmeltForge's Caddy instance for dev preview domains instead of managing its own Nginx — one proxy on the server instead of two.
+When SmeltForge is installed (recommended), HearthForge uses SmeltForge's Caddy instance — HearthForge registers dev preview vhosts via the Caddy Admin API, and Caddy handles automatic TLS via Let's Encrypt. This means one proxy on the server instead of two.
+
+Without SmeltForge, HearthForge can configure an Nginx proxy manually — see [Domains and TLS](04-domains-and-tls.md).
 
 ### HearthForge Daemon (Go)
 

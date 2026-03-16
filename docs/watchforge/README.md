@@ -107,8 +107,10 @@ When SmeltForge is installed:
 
 ## Deep Documentation
 
-See [`docs/watchforge/`](./) for:
-- Monitor configuration reference
-- Incident tracker internals
-- Status page customization
-- Alert channel configuration
+## Deep Documentation
+
+- [Architecture](01-architecture.md)
+- [Monitor Types](02-monitor-types.md)
+- [Alerting](03-alerting.md)
+- [Status Page](04-status-page.md)
+- [CLI Reference](05-cli-reference.md)
