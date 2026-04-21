@@ -36,7 +36,8 @@ forge/
 ├── hearthforge/            # remote dev workspaces
 │   ├── daemon/             # Go provisioning daemon
 │   └── gateway/            # Rust SSH gateway
-└── penforge/               # security scanning
+├── penforge/               # security scanning
+└── mcp-server/             # Python/FastMCP MCP server (AI agent control plane)
 ```
 
 ## Tool Versioning — .mise.toml
@@ -158,6 +159,43 @@ hearthforge/
 ```
 
 HearthForge documentation lives in `docs/hearthforge/` alongside all other module docs.
+
+### mcp-server/
+
+The Forge MCP Server is a Python sidecar service that wraps the `forge` CLI binary
+via subprocess and exposes all Forge functionality as MCP tools. AI agents (Claude,
+etc.) connect via Streamable HTTP and issue natural-language infrastructure commands.
+
+It is not a Go module and is not part of `go.work`. It has its own `pyproject.toml`
+and `Dockerfile`.
+
+```
+mcp-server/
+├── pyproject.toml
+├── Dockerfile
+├── docker-compose.yml
+├── .mcp.json
+├── VERSION
+└── src/forge_mcp/
+    ├── __init__.py
+    ├── server.py              # FastMCP entry point, lifespan, /health
+    └── tools/
+        ├── __init__.py
+        ├── utils.py           # run_forge() subprocess wrapper
+        ├── core.py            # forge_* tools (status, install, secrets, config)
+        ├── smeltforge.py      # smeltforge_* tools
+        ├── watchforge.py      # watchforge_* tools
+        ├── sparkforge.py      # sparkforge_* tools
+        ├── fluxforge.py       # fluxforge_* tools
+        ├── hearthforge.py     # hearthforge_* tools
+        └── penforge.py        # penforge_* tools
+```
+
+**Platform constraint:** `network_mode: host` is Linux-only. Docker Desktop (Mac/Windows)
+is not supported. This service is VPS-only by design.
+
+**Security:** The MCP port (default 8008) must be firewalled to localhost only.
+`forge_secrets_get` returns plaintext values -- restrict port access accordingly.
 
 ## shared/ Library
 
