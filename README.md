@@ -14,6 +14,21 @@ Forge is a self-hosted infrastructure suite for solo developers and small teams 
 | Dev workspaces | **HearthForge** | Remote developer environments via SSH |
 | Security | **PenForge** | Automated security scanning |
 
+## MCP Server
+
+Forge ships an MCP server sidecar (`mcp-server/`) that lets AI agents (Claude, etc.)
+control your infrastructure via natural language. It wraps the `forge` CLI binary via
+subprocess and exposes all 7 modules as MCP tools over Streamable HTTPS.
+
+```bash
+# Start the MCP server (requires forge CLI installed on the host)
+cd mcp-server
+docker compose up -d
+```
+
+Connect Claude Code: add `https://localhost:8008/mcp` as an MCP server endpoint.
+See `mcp-server/` for full setup instructions.
+
 ## Quickstart
 
 ```bash
@@ -80,7 +95,8 @@ forge/
 ├── hearthforge/        # remote dev workspaces
 │   ├── daemon/         # Go provisioning daemon
 │   └── gateway/        # Rust SSH gateway
-└── penforge/           # security scanning
+├── penforge/           # security scanning
+└── mcp-server/         # Python/FastMCP sidecar -- AI agent interface to the full suite
 ```
 
 ## Documentation
