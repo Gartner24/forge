@@ -32,6 +32,19 @@ forge install hearthforge
 forge install hearthforge --node 10.forge.2.1  # install on a mesh node
 ```
 
+> **Auto-start behaviour:** `forge install` registers and configures the module but
+> does not start it. Run `forge start <module>` after installation to bring the module
+> online. `forge status` will show the module as `stopped` until started.
+
+```bash
+# Install then start
+forge install smeltforge
+forge start smeltforge
+
+# Verify
+forge status
+```
+
 ---
 
 ## forge uninstall

@@ -4,9 +4,40 @@ This document describes all `forge hearthforge` subcommands, prompts, flags, and
 
 > The original `devctl` CLI has been replaced by `forge hearthforge`. A `devctl` shell alias is created automatically on install for backwards compatibility. See the [migration table](#migration-from-devctl) at the bottom of this page.
 
+> **Machine-readable mode:** Passing `--output json` on any command disables all
+> interactive prompts. Every required input must be supplied as a flag. This is the
+> mode used by the Forge MCP Server and any other automated callers.
+
 ## add-project
 
 Creates or updates a project entry in `registry/projects.json`. Optionally generates a project-level deploy key.
+
+```bash
+forge hearthforge add-project \
+  --id <slug> \
+  --repo <url> \
+  [--branch <branch>] \
+  [--stack node|python|mixed] \
+  [--port <port>] \
+  [--domain <domain>] \
+  [--cpus <n>] \
+  [--memory <mb>] \
+  [--output json]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--id <slug>` | Yes | Project slug. Lowercase, alphanumeric, dashes. e.g. `myapp`. |
+| `--repo <url>` | Yes | Git repository URL. HTTPS or SSH format. |
+| `--branch <branch>` | No | Default branch for clones and deploys. Default: `main`. |
+| `--stack node\|python\|mixed` | No | Toolchain stack. Default: `node`. |
+| `--port <port>` | No | Container port the dev server runs on, e.g. `3000`. |
+| `--domain <domain>` | No | Preview domain for the project. |
+| `--cpus <n>` | No | CPU limit for the dev container. Default: `1`. |
+| `--memory <mb>` | No | Memory limit in MB. Default: `512`. |
+| `--output json` | No | Return machine-readable JSON. Disables all prompts. |
+
+**Interactive mode (human-friendly alternative):**
 
 ```bash
 forge hearthforge add-project
@@ -37,7 +68,30 @@ See [GitHub Deploy Keys](13-github-deploy-keys.md) for the full tutorial.
 Provisions a new developer environment for a (developer, project) pair.
 
 ```bash
-forge hearthforge add-dev [--ide vscode|jetbrains|both] [--recreate] [--node <node>]
+forge hearthforge add-dev \
+  --dev <id> \
+  --pubkey <key-or-path> \
+  --project <project-id> \
+  [--ide vscode|jetbrains|both] \
+  [--recreate] \
+  [--node <mesh-ip>] \
+  [--output json]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--dev <id>` | Yes | Developer identifier, e.g. `alice`. Lowercase, alphanumeric, dashes. |
+| `--pubkey <key-or-path>` | Yes | SSH public key string or path to a `.pub` file. |
+| `--project <id>` | Yes | Project slug to associate the dev with, e.g. `myapp`. |
+| `--ide vscode\|jetbrains\|both` | No | IDE to optimise the workspace for. Default: `vscode`. |
+| `--recreate` | No | Tear down and recreate the workspace if it already exists. |
+| `--node <mesh-ip>` | No | FluxForge mesh IP of the node to provision on. Default: local node. |
+| `--output json` | No | Return machine-readable JSON. Disables all prompts. |
+
+**Interactive mode (human-friendly alternative):**
+
+```bash
+forge hearthforge add-dev
 ```
 
 **Prompts:**
