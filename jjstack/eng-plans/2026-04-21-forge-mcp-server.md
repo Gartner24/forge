@@ -448,11 +448,11 @@ TODOs blocking Lane E are defined in TODOS.md:
 
 **TODO-004 design decision (Lane A):** Implement audit trail in `run_forge()` wrapper
 (not FastMCP middleware). Every call to `run_forge()` appends a JSONL line to
-`~/.forge/mcp-audit.log` before invoking subprocess. Format:
-`{"ts": "<iso8601>", "tool": "<forge subcommand>", "args": ["..."], "exit": <code>}`.
-Args are passed through except when `args[0] == "secrets"` and `args[1] in ("get", "set")`,
-in which case the value arg is replaced with `"<redacted>"`. File is append-only; no rotation
-in v1.
+`~/.forge/mcp-audit.log` after subprocess returns. Format:
+`{"ts": "<iso8601>", "tool": "<forge subcommand>", "args": ["..."], "exit": <code>, "duration_ms": <int>}`.
+Measure duration with `time.monotonic()` before/after `subprocess.run()`. Args are passed
+through except when `args[0] == "secrets"` and `args[1] in ("get", "set")`, in which case
+the value arg is replaced with `"<redacted>"`. File is append-only; no rotation in v1.
 
 ---
 
@@ -479,3 +479,30 @@ Three new TODOs added (see TODOS.md for full detail):
 - Failure modes: 8 paths audited, 0 critical gaps remaining
 - Parallelization: 6 lanes (A+B parallel, then C+D parallel, then E, then F)
 - Quality iterations: 3 rounds
+- DX Review: 8 passes (DX POLISH mode), 10 decisions, 4 new files added to scope
+
+---
+
+## DX Review
+
+See [jjstack/dx-plans/2026-04-21-forge-mcp-server.md](../dx-plans/2026-04-21-forge-mcp-server.md)
+for the full DX review (persona card, empathy narrative, competitive benchmark, scorecard,
+implementation checklist). Summary: overall 6/10, TTHW 10min -> 5min, 4 new files added to
+scope (mcp-server/README.md, CHANGELOG.md, scripts/forge-mock, scripts/mcp-setup.sh).
+
+---
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | ISSUES_OPEN | mode: HOLD_SCOPE, 2 critical gaps |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | -- | -- |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (PLAN) | 17 issues, 0 critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | -- | -- |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 1 | CLEAR (PLAN) | score: 4/10 -> 6/10, TTHW: 10min -> 5min |
+
+**UNRESOLVED:** 0 across all reviews.
+**VERDICT:** ENG CLEARED -- ready to implement. CEO review has 2 open gaps (HOLD_SCOPE mode -- gaps are deferred by design, not blocking).
+
+Note: Eng review and DX review at commit dc54e0c (2 commits behind HEAD a27c562 -- unrelated commits, plan files unchanged).

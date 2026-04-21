@@ -99,9 +99,10 @@ per-tool instrumentation. Redact args when the command matches `forge secrets ge
 `forge secrets set`. Alternatively, use FastMCP middleware.
 
 **Acceptance criteria:** Every tool call logs `tool_name` + args (secrets values redacted) +
-timestamp to `~/.forge/mcp-audit.log` in JSONL format. Implemented in `run_forge()` wrapper
-before first production deployment. `forge secrets get` and `forge secrets set` args must
-show the key but never the value.
+timestamp + duration_ms to `~/.forge/mcp-audit.log` in JSONL format. JSONL record format:
+`{"ts": "<iso8601>", "tool": "<forge subcommand>", "args": ["..."], "exit": <code>, "duration_ms": <int>}`.
+Implemented in `run_forge()` wrapper before first production deployment. `forge secrets get`
+and `forge secrets set` args must show the key but never the value.
 
 **Effort:** S (human ~2h / CC ~10min)
 **Depends on:** Nothing
