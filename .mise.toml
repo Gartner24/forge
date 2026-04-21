@@ -1,0 +1,7 @@
+[tools]
+go   = "1.26.1"
+rust = "1.94.0"
+just = "1.27.0"
+
+[settings]
+experimental = true
