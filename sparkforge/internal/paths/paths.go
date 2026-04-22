@@ -4,58 +4,78 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/gartner24/forge/shared/config"
 )
 
-func forgeDir() (string, error) {
+// moduleDataDir returns the sparkforge data directory.
+// Priority: module config > global config > $HOME/.forge/data/sparkforge (test/pre-init fallback).
+// Production systems always have config written by forge init.
+func moduleDataDir() (string, error) {
+	cfg, err := config.Load()
+	if err == nil && cfg != nil {
+		if m, ok := cfg.Modules["sparkforge"]; ok && m.DataDir != "" {
+			return m.DataDir, nil
+		}
+		if cfg.Forge.DataDir != "" {
+			return filepath.Join(cfg.Forge.DataDir, "sparkforge"), nil
+		}
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("finding home dir: %w", err)
+		return "/opt/data/sparkforge", nil
+	}
+	return filepath.Join(home, ".forge", "data", "sparkforge"), nil
+}
+
+// moduleInstallDir returns the forge install directory.
+// Priority: global config > $HOME/.forge (test/pre-init fallback).
+func moduleInstallDir() (string, error) {
+	cfg, err := config.Load()
+	if err == nil && cfg != nil && cfg.Forge.InstallDir != "" {
+		return cfg.Forge.InstallDir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "/opt/infra/forge", nil
 	}
 	return filepath.Join(home, ".forge"), nil
 }
 
-func sparkforgeDataDir() (string, error) {
-	d, err := forgeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(d, "data", "sparkforge"), nil
-}
-
 func ChannelsFile() (string, error) {
-	d, err := sparkforgeDataDir()
+	installDir, err := moduleInstallDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(d, "registry", "channels.json"), nil
+	return filepath.Join(installDir, "registry", "sparkforge", "channels.json"), nil
 }
 
 func DeliveryLogFile() (string, error) {
-	d, err := sparkforgeDataDir()
+	d, err := moduleDataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(d, "data", "delivery.log"), nil
+	return filepath.Join(d, "delivery.log"), nil
 }
 
 func AlertsFile() (string, error) {
-	d, err := sparkforgeDataDir()
+	d, err := moduleDataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(d, "data", "alerts.json"), nil
+	return filepath.Join(d, "alerts.json"), nil
 }
 
 func SecretsFile() (string, error) {
-	d, err := forgeDir()
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("finding home dir: %w", err)
 	}
-	return filepath.Join(d, "secrets.age"), nil
+	return filepath.Join(home, ".forge", "secrets.age"), nil
 }
 
 func GotifyDataDir() (string, error) {
-	d, err := sparkforgeDataDir()
+	d, err := moduleDataDir()
 	if err != nil {
 		return "", err
 	}
