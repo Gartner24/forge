@@ -51,18 +51,19 @@ func runInit(cmd *cobra.Command, args []string) error {
 	installDir := defaultInstallDir
 	runDir := filepath.Join(forgeDir, "run")
 
-	dirsToCreate := []string{forgeDir, runDir, dataDir, installDir, "/opt/data/logs"}
+	logsDir := filepath.Join(dataDir, "logs")
+	dirsToCreate := []string{forgeDir, runDir, dataDir, installDir, logsDir}
 	for _, dir := range dirsToCreate {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return cmdErr(fmt.Errorf("creating %s: %w", dir, err))
 		}
 	}
 
-	// Set ownership of /opt/data and /opt/infra/forge to the current user.
+	// Set ownership of data and install dirs to the current user.
 	if u, err := user.Current(); err == nil {
 		uid, _ := strconv.Atoi(u.Uid)
 		gid, _ := strconv.Atoi(u.Gid)
-		for _, dir := range []string{dataDir, installDir, "/opt/data/logs"} {
+		for _, dir := range []string{dataDir, installDir, logsDir} {
 			_ = os.Chown(dir, uid, gid)
 		}
 	}

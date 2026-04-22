@@ -55,6 +55,7 @@ registry/*.local.json
 generated/
 tmp/
 .cache/
+dist/
 
 # ---- Backup / exports ----
 backups/

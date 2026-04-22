@@ -18,8 +18,13 @@ import (
 
 func fluxDataDir() string {
 	cfg, err := sharedconfig.Load()
-	if err == nil && cfg != nil && cfg.Forge.DataDir != "" {
-		return filepath.Join(cfg.Forge.DataDir, "fluxforge")
+	if err == nil && cfg != nil {
+		if m, ok := cfg.Modules["fluxforge"]; ok && m.DataDir != "" {
+			return m.DataDir
+		}
+		if cfg.Forge.DataDir != "" {
+			return filepath.Join(cfg.Forge.DataDir, "fluxforge")
+		}
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		return filepath.Join(home, ".forge", "data", "fluxforge")
