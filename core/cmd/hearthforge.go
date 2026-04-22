@@ -21,7 +21,7 @@ import (
 
 type hfProjectPreview struct {
 	Enabled           bool   `json:"enabled"`
-	FrontendPort      int    `json:"frontend_port"`
+	FrontendPort      int    `json:"frontend_port,omitempty"`
 	BackendPort       int    `json:"backend_port,omitempty"`
 	FrontendPath      string `json:"frontend_path,omitempty"`
 	BackendPathPrefix string `json:"backend_path_prefix,omitempty"`
@@ -744,7 +744,12 @@ func runHFAddProject(cmd *cobra.Command, args []string) error {
 		Preview: hfProjectPreview{
 			Enabled:           port > 0,
 			FrontendPort:      port,
-			BackendPathPrefix: "/api",
+			BackendPathPrefix: func() string {
+				if port > 0 {
+					return "/api"
+				}
+				return ""
+			}(),
 		},
 		Resources: hfProjectResources{
 			CPUs:   cpus,
