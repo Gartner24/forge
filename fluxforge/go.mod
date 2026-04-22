@@ -1,0 +1,24 @@
+module github.com/gartner24/forge/fluxforge
+
+go 1.23.4
+
+require (
+	github.com/google/uuid v1.6.0
+	github.com/vishvananda/netlink v1.3.0
+	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
+	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20230429144221-925a1e7659e6
+	github.com/gartner24/forge/shared v0.0.0
+)
+
+require (
+	filippo.io/age v1.3.1 // indirect
+	filippo.io/hpke v0.4.0 // indirect
+	github.com/BurntSushi/toml v1.6.0 // indirect
+	github.com/vishvananda/netns v0.0.4 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
+)
+
+replace github.com/gartner24/forge/shared => ../shared

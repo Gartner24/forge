@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -152,10 +153,7 @@ func wfNewToken() string {
 
 func wfRandHex(n int, uuid bool) string {
 	b := make([]byte, n)
-	if f, err := os.Open("/dev/urandom"); err == nil {
-		_, _ = f.Read(b)
-		f.Close()
-	}
+	_, _ = rand.Read(b)
 	if uuid {
 		return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 	}
