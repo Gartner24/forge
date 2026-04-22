@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -321,10 +322,26 @@ func blueGreenName(projectID, color string) string {
 	return "smeltforge-" + projectID + "-" + color
 }
 
+var validBranch = regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
+var validRepoPrefix = []string{"https://", "http://", "git@"}
+
 // syncGit clones or pulls the repo at the given branch into wsPath.
 func syncGit(repo, branch, wsPath string) error {
 	if branch == "" {
 		branch = "main"
+	}
+	if !validBranch.MatchString(branch) {
+		return fmt.Errorf("invalid branch name %q", branch)
+	}
+	allowed := false
+	for _, prefix := range validRepoPrefix {
+		if strings.HasPrefix(repo, prefix) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("invalid repo URL %q: must start with https://, http://, or git@", repo)
 	}
 	if _, err := os.Stat(filepath.Join(wsPath, ".git")); os.IsNotExist(err) {
 		if err := os.MkdirAll(filepath.Dir(wsPath), 0755); err != nil {

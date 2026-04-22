@@ -145,10 +145,11 @@ func (s *Store) readAll() (map[string]string, error) {
 		if line == "" {
 			continue
 		}
-		k, v, ok := strings.Cut(line, "=")
-		if !ok {
+		idx := strings.Index(line, "=")
+		if idx < 0 {
 			continue
 		}
+		k, v := line[:idx], line[idx+1:]
 		data[k] = v
 	}
 

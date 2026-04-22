@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -67,7 +68,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	projectID, providedSecret := parts[0], parts[1]
 
 	storedSecret, err := s.secretLookup("smeltforge." + projectID + "._webhook")
-	if err != nil || storedSecret != providedSecret {
+	if err != nil || subtle.ConstantTimeCompare([]byte(storedSecret), []byte(providedSecret)) != 1 {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -113,7 +114,7 @@ func (s *Server) handleCIDeploy(w http.ResponseWriter, r *http.Request) {
 	valid := false
 	for _, t := range p.CITokens {
 		stored, err := s.secretLookup("smeltforge." + body.Project + "._citoken_" + t.ID)
-		if err == nil && stored == providedToken {
+		if err == nil && subtle.ConstantTimeCompare([]byte(stored), []byte(providedToken)) == 1 {
 			valid = true
 			break
 		}
