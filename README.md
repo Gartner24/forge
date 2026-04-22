@@ -51,6 +51,13 @@ just test-all
 ## Installing Forge
 
 ```bash
+# One-liner install (Linux only, amd64 and arm64)
+curl -fsSL https://raw.githubusercontent.com/Gartner24/forge/main/install.sh | sh
+```
+
+Or build from source:
+
+```bash
 # Install Forge core (CLI + secrets store — always the first step)
 just core/install
 

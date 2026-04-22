@@ -55,6 +55,8 @@ registry/*.local.json
 generated/
 tmp/
 .cache/
+dist/
+core/forge
 
 # ---- Backup / exports ----
 backups/
