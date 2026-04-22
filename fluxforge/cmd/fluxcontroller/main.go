@@ -21,8 +21,13 @@ import (
 
 func fluxDataDir() string {
 	cfg, err := sharedconfig.Load()
-	if err == nil && cfg != nil && cfg.Forge.DataDir != "" {
-		return filepath.Join(cfg.Forge.DataDir, "fluxforge")
+	if err == nil && cfg != nil {
+		if m, ok := cfg.Modules["fluxforge"]; ok && m.DataDir != "" {
+			return m.DataDir
+		}
+		if cfg.Forge.DataDir != "" {
+			return filepath.Join(cfg.Forge.DataDir, "fluxforge")
+		}
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		return filepath.Join(home, ".forge", "data", "fluxforge")
@@ -78,7 +83,7 @@ func run() error {
 		return fmt.Errorf("loading registry: %w", err)
 	}
 
-	auditLog, err := audit.New(filepath.Join(dataDir, "audit.log"))
+	auditLog, err := audit.New(filepath.Join(dataDir, "logs", "fluxforge", "audit.log"))
 	if err != nil {
 		return fmt.Errorf("opening audit log: %w", err)
 	}

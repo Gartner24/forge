@@ -165,10 +165,10 @@ The release workflow (`.github/workflows/release.yml`) then:
 **Testing install.sh locally:**
 
 ```bash
-# Smoke-test the detection logic without actually downloading
-OS=Linux ARCH=x86_64 bash -x install.sh 2>&1 | head -20
+# Syntax check only (no download)
+bash -n install.sh
 
-# Full local test against a specific release
+# Full local test against the latest release
 curl -fsSL https://raw.githubusercontent.com/Gartner24/forge/main/install.sh | sh
 ```
 
