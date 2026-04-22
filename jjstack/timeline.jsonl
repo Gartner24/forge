@@ -1,0 +1,10 @@
+{"skill":"office-hours","event":"started","branch":"refactor/forge-suite","session":"213813-1776788327","ts":"2026-04-21T16:18:47.448Z"}
+{"skill":"plan-ceo-review","event":"completed","branch":"refactor/forge-suite","outcome":"success","session":"ceo-review-forge-mcp","ts":"2026-04-21T17:31:29.785Z"}
+{"skill":"plan-eng-review","event":"completed","branch":"refactor/forge-suite","outcome":"success","session":"275061-1776801755","ts":"2026-04-21T20:02:35.532Z"}
+{"skill":"setup-browser-cookies","event":"started","branch":"refactor/forge-suite","session":"292302-1776805079","ts":"2026-04-21T20:57:59.916Z"}
+{"skill":"plan-devex-review","event":"started","branch":"refactor/forge-suite","session":"293644-1776805196","ts":"2026-04-21T20:59:56.880Z"}
+{"skill":"plan-devex-review","event":"completed","branch":"refactor/forge-suite","outcome":"success","session":"resumed-after-compaction","ts":"2026-04-21T21:38:40.634Z"}
+{"skill":"qa","event":"started","branch":"docs/mcp-server-prerequisites","session":"480953-1776818010","ts":"2026-04-22T00:33:31.045Z"}
+{"skill":"qa","event":"completed","branch":"docs/mcp-server-prerequisites","outcome":"success","duration_s":"0","session":"","ts":"2026-04-22T00:36:39.249Z"}
+{"skill":"qa","event":"started","branch":"docs/mcp-server-prerequisites","session":"509138-1776818269","ts":"2026-04-22T00:37:49.308Z"}
+{"skill":"qa","event":"completed","branch":"docs/mcp-server-prerequisites","outcome":"success","duration_s":"0","session":"qa-session","ts":"2026-04-22T00:39:30.910Z"}
