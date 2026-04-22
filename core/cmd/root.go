@@ -79,8 +79,10 @@ func isJSON() bool {
 }
 
 func printJSON(v any) {
-	b, _ := json.MarshalIndent(v, "", "  ")
-	fmt.Println(string(b))
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v)
 }
 
 func printSuccess(msg string) {
