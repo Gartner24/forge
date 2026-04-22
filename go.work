@@ -6,7 +6,7 @@ use (
 	./hearthforge
 	./penforge
 	./shared
-	./sparkforge
 	./smeltforge
+	./sparkforge
 	./watchforge
 )
