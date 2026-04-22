@@ -3,34 +3,69 @@ package paths
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/gartner24/forge/shared/config"
 )
 
-func forgeDataDir() (string, error) {
+func moduleDataDir() (string, error) {
+	cfg, err := config.Load()
+	if err == nil && cfg != nil {
+		if m, ok := cfg.Modules["smeltforge"]; ok && m.DataDir != "" {
+			return m.DataDir, nil
+		}
+		if cfg.Forge.DataDir != "" {
+			return filepath.Join(cfg.Forge.DataDir, "smeltforge"), nil
+		}
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "/opt/data/smeltforge", nil
 	}
 	return filepath.Join(home, ".forge", "data", "smeltforge"), nil
 }
 
+func moduleInstallDir() (string, error) {
+	cfg, err := config.Load()
+	if err == nil && cfg != nil && cfg.Forge.InstallDir != "" {
+		return cfg.Forge.InstallDir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "/opt/infra/forge", nil
+	}
+	return filepath.Join(home, ".forge"), nil
+}
+
+func moduleLogsDir() (string, error) {
+	cfg, err := config.Load()
+	if err == nil && cfg != nil && cfg.Forge.DataDir != "" {
+		return filepath.Join(cfg.Forge.DataDir, "logs", "smeltforge"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "/opt/data/logs/smeltforge", nil
+	}
+	return filepath.Join(home, ".forge", "data", "logs", "smeltforge"), nil
+}
+
 func RegistryFile() (string, error) {
-	d, err := forgeDataDir()
+	installDir, err := moduleInstallDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(d, "registry", "projects.json"), nil
+	return filepath.Join(installDir, "registry", "smeltforge", "projects.json"), nil
 }
 
 func AuditLog() (string, error) {
-	d, err := forgeDataDir()
+	logsDir, err := moduleLogsDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(d, "deploys.log"), nil
+	return filepath.Join(logsDir, "audit.log"), nil
 }
 
 func Workspace(projectID string) (string, error) {
-	d, err := forgeDataDir()
+	d, err := moduleDataDir()
 	if err != nil {
 		return "", err
 	}
@@ -46,5 +81,5 @@ func SecretsFile() (string, error) {
 }
 
 func DataDir() (string, error) {
-	return forgeDataDir()
+	return moduleDataDir()
 }

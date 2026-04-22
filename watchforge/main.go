@@ -30,10 +30,14 @@ func main() {
 	}
 
 	dataDir := moduleDataDir(cfg)
+	installDir := moduleInstallDir(cfg)
 
-	registryDir := filepath.Join(dataDir, "registry")
-	statusDir := filepath.Join(dataDir, "data", "status")
-	auditPath := filepath.Join(dataDir, "data", "audit.log")
+	registryDir := filepath.Join(installDir, "registry", "watchforge")
+	statusDir := filepath.Join(dataDir, "status")
+	auditPath := filepath.Join(cfg.Forge.DataDir, "logs", "watchforge", "audit.log")
+	if cfg.Forge.DataDir == "" {
+		auditPath = "/opt/data/logs/watchforge/audit.log"
+	}
 
 	reg, err := registry.New(registryDir)
 	if err != nil {
@@ -81,6 +85,21 @@ func moduleDataDir(cfg *config.Config) string {
 	if m, ok := cfg.Modules["watchforge"]; ok && m.DataDir != "" {
 		return m.DataDir
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".forge", "data", "watchforge")
+	if cfg.Forge.DataDir != "" {
+		return filepath.Join(cfg.Forge.DataDir, "watchforge")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".forge", "data", "watchforge")
+	}
+	return "/opt/data/watchforge"
+}
+
+func moduleInstallDir(cfg *config.Config) string {
+	if cfg.Forge.InstallDir != "" {
+		return cfg.Forge.InstallDir
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".forge")
+	}
+	return "/opt/infra/forge"
 }

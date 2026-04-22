@@ -12,8 +12,20 @@ import (
 	"github.com/gartner24/forge/fluxforge/internal/mesh"
 	"github.com/gartner24/forge/fluxforge/internal/store"
 	"github.com/gartner24/forge/fluxforge/internal/wg"
+	sharedconfig "github.com/gartner24/forge/shared/config"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
+
+func fluxDataDir() string {
+	cfg, err := sharedconfig.Load()
+	if err == nil && cfg != nil && cfg.Forge.DataDir != "" {
+		return filepath.Join(cfg.Forge.DataDir, "fluxforge")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".forge", "data", "fluxforge")
+	}
+	return "/opt/data/fluxforge"
+}
 
 var version = "0.1.0"
 
@@ -29,11 +41,7 @@ func main() {
 }
 
 func run() error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("finding home dir: %w", err)
-	}
-	dataDir := filepath.Join(homeDir, ".forge", "fluxforge")
+	dataDir := fluxDataDir()
 
 	stateStore, err := store.New[mesh.LocalState](filepath.Join(dataDir, "state.json"))
 	if err != nil {

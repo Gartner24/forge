@@ -1,8 +1,11 @@
 package router
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,7 +18,19 @@ import (
 
 func newTestRouter(t *testing.T) *Router {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	// Write a minimal config so paths resolve to tmp instead of /opt/data.
+	forgeDir := filepath.Join(tmp, ".forge")
+	if err := os.MkdirAll(forgeDir, 0755); err != nil {
+		t.Fatalf("creating forge dir: %v", err)
+	}
+	cfg := fmt.Sprintf("[forge]\ndata_dir = %q\ninstall_dir = %q\n", tmp+"/data", tmp)
+	if err := os.WriteFile(filepath.Join(forgeDir, "config.toml"), []byte(cfg), 0644); err != nil {
+		t.Fatalf("writing test config: %v", err)
+	}
+
 	r, err := New()
 	if err != nil {
 		t.Fatalf("router.New() error: %v", err)

@@ -30,24 +30,25 @@ type ModuleConfig struct {
 	DataDir string `toml:"data_dir"`
 }
 
-// Loads reads ~/.forge/config.toml and returns a parsed Config.
-// If the file does not exists, it returns an empty Config with no errors.
+// Load reads ~/.forge/config.toml and returns a parsed Config.
+// If the file does not exist, it returns an empty Config with no errors.
 func Load() (*Config, error) {
 	path, err := configPath()
 	if err != nil {
 		return nil, err
 	}
+	return LoadFrom(path)
+}
 
+// LoadFrom reads config from an explicit path. Returns an empty Config if the file does not exist.
+func LoadFrom(path string) (*Config, error) {
 	cfg := &Config{}
-
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return cfg, nil
 	}
-
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
-
 	return cfg, nil
 }
 
