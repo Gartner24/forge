@@ -1,64 +1,103 @@
-# ---- OS / Editor ----
+# ==============================================================================
+# Forge monorepo .gitignore
+# Go modules + Rust (gateway/) + Python (mcp-server/) + LaTeX docs
+# ==============================================================================
+
+# ---- OS ----
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
-*.swp
-*.swo
-.vscode/
+ehthumbs.db
+
+# ---- Editor ----
 .idea/
 *.iml
+*.swp
+*.swo
+*~
 
-# ---- python ----
-/bin/__pycache__
+# ---- Go: compiled binaries ----
+# All release binaries land in dist/ per project structure
+dist/
 
-# ---- Rust ----
-# Root Cargo targets
-/target/
-# Per-crate targets (e.g. gateway/)
-**/target
+# Named 'forge' at repo root or in any module dir (core/forge, etc.)
+**/forge
+
+# Module-named binaries built in-place (go build without -o dist/)
+penforge/penforge
+watchforge/watchforge
+watchforge/core
+smeltforge/smeltforge
+sparkforge/sparkforge
+hearthforge/hearthforge
+fluxforge/fluxcontroller
+fluxforge/fluxagent
+
+# Go test binaries and coverage output
+*.test
+*.out
+coverage.html
+
+# ---- Rust: build output ----
+**/target/
 **/*.rs.bk
 
-# ---- Node / scripts (if any) ----
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
+# ---- Python: artifacts ----
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
 
-# ---- Secrets / keys ----
-**/.env
-**/.env.*
-!**/.env.example
+# ---- LaTeX: build artifacts (do NOT ignore *.pdf — PDFs are docs) ----
+*.aux
+*.log
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
 
-# Private keys / host keys (never commit)
-**/keys/*
-!**/keys/.gitkeep
+# ---- Secrets and keys ----
+*.age
+.env
+.env.*
+!.env.example
+docker-compose.override.yml
+
+# Private / host keys (never commit)
 **/*.pem
 **/*.key
 **/id_rsa
 **/id_ed25519
 **/*_ed25519
 **/*_rsa
-
-# Authorized keys storage (commit only examples if needed)
+**/keys/*
+!**/keys/.gitkeep
 **/authorized_keys/*
 !**/authorized_keys/.gitkeep
 
-# ---- Runtime state ----
-**/logs/*
-!**/logs/.gitkeep
+# ---- Forge runtime state ----
+# If forge is run locally inside the repo
+.forge/
+/opt/
 
-# Registries that may contain real identities/keys
+# ---- Claude Code and local tooling ----
+.claude/
+.jjstack/
+# NOTE: jjstack/ (repo root dir) is NOT ignored — it contains plan history
+
+# ---- Registry: live data files ----
 registry/devs.json
 registry/*.local.json
 
-# Generated artifacts (templates output, renders, etc.)
+# ---- Generated / temp / local state ----
 generated/
 tmp/
 .cache/
-dist/
-core/forge
-
-# ---- Backup / exports ----
 backups/
 exports/
 .gstack/
