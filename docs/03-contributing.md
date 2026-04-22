@@ -140,3 +140,39 @@ GitHub Actions runs on every PR:
 4. Format check — verifies `gofmt` was run
 
 PRs cannot be merged if CI fails.
+
+## Releasing
+
+Releases are triggered by pushing a tag matching `core/v*`. GitHub Actions
+builds `forge-linux-amd64` and `forge-linux-arm64`, then publishes a GitHub
+Release with both binaries attached.
+
+**Cutting a release:**
+
+```bash
+# 1. Update the version string in core/main.go (or wherever version is set)
+# 2. Commit and merge to main
+# 3. Tag the commit
+git tag core/v0.2.0
+git push origin core/v0.2.0
+```
+
+The release workflow (`.github/workflows/release.yml`) then:
+1. Runs `go test ./...` in the `core/` module
+2. Cross-compiles for `linux/amd64` and `linux/arm64` with CGO disabled
+3. Creates a GitHub Release named "Forge v0.2.0" with both binaries
+
+**Testing install.sh locally:**
+
+```bash
+# Smoke-test the detection logic without actually downloading
+OS=Linux ARCH=x86_64 bash -x install.sh 2>&1 | head -20
+
+# Full local test against a specific release
+curl -fsSL https://raw.githubusercontent.com/Gartner24/forge/main/install.sh | sh
+```
+
+**Version tag format:** `core/v<semver>` (e.g. `core/v0.2.0`). Only the core
+CLI binary is released this way. Module daemons (`fluxcontroller`, `fluxagent`,
+`smeltforged`, etc.) are deployed via `forge install <module>`, not released
+as standalone binaries.
