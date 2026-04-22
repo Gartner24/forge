@@ -730,6 +730,9 @@ func runHFAddProject(cmd *cobra.Command, args []string) error {
 	default:
 		return cmdErr(fmt.Errorf("--stack must be node, python, or mixed"))
 	}
+	if port < 0 || port > 65535 {
+		return cmdErr(fmt.Errorf("--port must be between 1 and 65535 (got %d)", port))
+	}
 
 	pf, err := readProjectsFile(hfc.projectsJSON)
 	if err != nil {
