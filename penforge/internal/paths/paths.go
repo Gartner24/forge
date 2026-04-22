@@ -3,22 +3,45 @@ package paths
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/gartner24/forge/shared/config"
 )
 
-func baseDir() (string, error) {
+func moduleDataDir() (string, error) {
+	cfg, err := config.Load()
+	if err == nil && cfg != nil {
+		if m, ok := cfg.Modules["penforge"]; ok && m.DataDir != "" {
+			return m.DataDir, nil
+		}
+		if cfg.Forge.DataDir != "" {
+			return filepath.Join(cfg.Forge.DataDir, "penforge"), nil
+		}
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "/opt/data/penforge", nil
 	}
 	return filepath.Join(home, ".forge", "data", "penforge"), nil
 }
 
+func moduleInstallDir() (string, error) {
+	cfg, err := config.Load()
+	if err == nil && cfg != nil && cfg.Forge.InstallDir != "" {
+		return cfg.Forge.InstallDir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "/opt/infra/forge", nil
+	}
+	return filepath.Join(home, ".forge"), nil
+}
+
 func RegistryDir() (string, error) {
-	base, err := baseDir()
+	installDir, err := moduleInstallDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "registry"), nil
+	return filepath.Join(installDir, "registry", "penforge"), nil
 }
 
 func TargetsFile() (string, error) {
@@ -30,15 +53,11 @@ func TargetsFile() (string, error) {
 }
 
 func DataDir() (string, error) {
-	base, err := baseDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(base, "data"), nil
+	return moduleDataDir()
 }
 
 func FindingsFile() (string, error) {
-	d, err := DataDir()
+	d, err := moduleDataDir()
 	if err != nil {
 		return "", err
 	}
@@ -46,7 +65,7 @@ func FindingsFile() (string, error) {
 }
 
 func ScansDir() (string, error) {
-	d, err := DataDir()
+	d, err := moduleDataDir()
 	if err != nil {
 		return "", err
 	}
@@ -62,22 +81,25 @@ func ScanDir(scanID string) (string, error) {
 }
 
 func AuditFile() (string, error) {
-	d, err := DataDir()
-	if err != nil {
-		return "", err
+	cfg, err := config.Load()
+	if err == nil && cfg != nil && cfg.Forge.DataDir != "" {
+		return filepath.Join(cfg.Forge.DataDir, "logs", "penforge", "audit.log"), nil
 	}
-	return filepath.Join(d, "audit.log"), nil
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "/opt/data/logs/penforge/audit.log", nil
+	}
+	return filepath.Join(home, ".forge", "data", "logs", "penforge", "audit.log"), nil
 }
 
 func TemplatesDir() (string, error) {
-	base, err := baseDir()
+	d, err := moduleDataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "templates", "nuclei"), nil
+	return filepath.Join(d, "templates", "nuclei"), nil
 }
 
-// EnsureDirs creates all required penforge data directories.
 func EnsureDirs() error {
 	dirs := []func() (string, error){
 		RegistryDir,
