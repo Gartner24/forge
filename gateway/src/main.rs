@@ -326,45 +326,62 @@ impl Handler for GatewayHandler {
             warn!("failed to refresh access state from devs.json: {e}");
         }
 
-        // Username encodes dev-project pair: <dev>-<project>.
-        let parts: Vec<&str> = user.splitn(2, '-').collect();
-        if parts.len() != 2 {
-            warn!("invalid username format '{}', expected <dev>-<project>", user);
-            if let Some(peer) = self.peer {
-                self.state.log_audit(
-                    Some(peer),
-                    user,
-                    "-",
-                    "rejected",
-                    "invalid-username-format",
-                );
-            }
-            return Ok(Auth::Reject { proceed_with_methods: None });
+        // Username format: <dev>-<project>. Because both dev IDs and project IDs
+        // can contain hyphens (e.g. "ana-1-tiap"), we resolve the split by finding
+        // the longest active developer ID that is a prefix of the username.
+        enum Lookup {
+            NoMatch,
+            ProjectDenied { dev_id: String, project_id: String },
+            Ok { dev_id: String, project_id: String },
         }
 
-        let dev_id = parts[0].to_string();
-        let project_id = parts[1].to_string();
-
-        // Check dev+project membership.
-        {
+        let lookup = {
             let access = self.state.access.read().await;
-            if !access.is_project_allowed(&dev_id, &project_id) {
-                warn!(
-                    "access denied: dev '{}' not allowed for project '{}'",
-                    dev_id, project_id
-                );
+            let mut best: Option<(String, String)> = None; // (dev_id, project_id)
+            for dev in &access.dev_projects {
+                if dev.status != "active" {
+                    continue;
+                }
+                let prefix = format!("{}-", dev.id);
+                if let Some(rest) = user.strip_prefix(prefix.as_str()) {
+                    if !rest.is_empty() {
+                        // Prefer the longer dev ID (most specific match).
+                        let is_longer = best.as_ref().map_or(true, |(d, _)| dev.id.len() > d.len());
+                        if is_longer {
+                            best = Some((dev.id.clone(), rest.to_string()));
+                        }
+                    }
+                }
+            }
+            match best {
+                None => Lookup::NoMatch,
+                Some((dev_id, project_id)) => {
+                    if access.is_project_allowed(&dev_id, &project_id) {
+                        Lookup::Ok { dev_id, project_id }
+                    } else {
+                        Lookup::ProjectDenied { dev_id, project_id }
+                    }
+                }
+            }
+        };
+
+        let (dev_id, project_id) = match lookup {
+            Lookup::NoMatch => {
+                warn!("no matching developer for username '{}'", user);
                 if let Some(peer) = self.peer {
-                    self.state.log_audit(
-                        Some(peer),
-                        &dev_id,
-                        &project_id,
-                        "rejected",
-                        "project-not-allowed",
-                    );
+                    self.state.log_audit(Some(peer), user, "-", "rejected", "no-matching-dev");
                 }
                 return Ok(Auth::Reject { proceed_with_methods: None });
             }
-        }
+            Lookup::ProjectDenied { dev_id, project_id } => {
+                warn!("access denied: dev '{}' not allowed for project '{}'", dev_id, project_id);
+                if let Some(peer) = self.peer {
+                    self.state.log_audit(Some(peer), &dev_id, &project_id, "rejected", "project-not-allowed");
+                }
+                return Ok(Auth::Reject { proceed_with_methods: None });
+            }
+            Lookup::Ok { dev_id, project_id } => (dev_id, project_id),
+        };
 
         // Check key against authorized_keys/<dev>.pub.
         let auth_path = self.state.authorized_keys_path(&dev_id);
