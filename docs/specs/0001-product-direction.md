@@ -1,4 +1,9 @@
-# Forge - Office Hours Design Session
+# 0001. Product direction: who Forge is for and why
+
+**Date**: 2026-04-21
+**Status**: Accepted
+
+_Moved from `jjstack/office-hours.md` (an office hours design session). Standalone decision: target users, premises, and the MCP server idea._
 
 **Date:** 2026-04-21
 **Format:** YC-style forcing questions + premise challenge + strategic alternatives

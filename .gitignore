@@ -88,7 +88,7 @@ docker-compose.override.yml
 # ---- Claude Code and local tooling ----
 .claude/
 .jjstack/
-# NOTE: jjstack/ (repo root dir) is NOT ignored — it contains plan history
+jjstack/
 
 # ---- Registry: live data files ----
 registry/devs.json
